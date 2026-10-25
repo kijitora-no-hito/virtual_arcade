@@ -1,6 +1,6 @@
 {
   "name": "virtual-arcade",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "license": "MIT",
   "description": "バーチャルゲームセンター - クオータービューの店内を歩き、筐体に YouTube の配信と宣伝を置ける Web アプリ",

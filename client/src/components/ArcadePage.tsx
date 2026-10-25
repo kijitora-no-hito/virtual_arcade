@@ -879,8 +879,9 @@ export const ArcadePage = ({
   }, [client.left, client, onLeft]);
 
   const pinnedIds = new Set(players.flatMap((p) => (p.pinned ? [p.pinned.id] : [])));
-  const chatPanel = (compact: boolean) => (
+  const chatPanel = (compact: boolean, form = true) => (
     <ChatPanel
+      form={form}
       messages={client.chat}
       myPid={you?.pid ?? null}
       admin={!!you?.admin}
@@ -1024,13 +1025,12 @@ export const ArcadePage = ({
         <section className="m-dock">
           <div className="m-emotes">{emoteButtons}</div>
           {layout.landscape ? (
-            chatPanel(true)
+            chatPanel(true, false)
           ) : (
-            <>
-              <ChatPeek messages={client.chat} myPid={you?.pid ?? null} onOpen={() => setChatOpen(true)} />
-              <ChatForm compact />
-            </>
+            <ChatPeek messages={client.chat} myPid={you?.pid ?? null} onOpen={() => setChatOpen(true)} />
           )}
+          {/* 発言の欄は縦横で同じ場所の同じ要素（回転・キーボードで作り直すとフォーカスが外れてキーボードが閉じる。v0.4.1） */}
+          <ChatForm compact />
         </section>
         {chatOpen && !layout.landscape && (
           <ChatSheet online={players.length} maxPlayers={client.maxPlayers} connected={client.connected} onClose={() => setChatOpen(false)}>

@@ -146,7 +146,10 @@ export const ChatForm = ({
   );
 };
 
-/** 店内チャット（右の欄）。発言は店内全体に届き、発言した人の頭上に吹き出しが出る。compact（スマホ）は見出しを出さない */
+/**
+ * 店内チャット（右の欄）。発言は店内全体に届き、発言した人の頭上に吹き出しが出る。compact（スマホ）は見出しを出さない。
+ * form={false} は発言の欄を出さない（スマホの下の欄は、縦横で同じ ChatForm を外に置いて、回転やキーボードで作り直さないため。v0.4.1）
+ */
 export const ChatPanel = ({
   messages,
   myPid,
@@ -156,6 +159,7 @@ export const ChatPanel = ({
   connected,
   pinnedIds,
   compact = false,
+  form = true,
 }: {
   /** ピン止めされている発言の id（店内の全員の分） */
   pinnedIds: Set<number>;
@@ -166,6 +170,7 @@ export const ChatPanel = ({
   maxPlayers: number;
   connected: boolean;
   compact?: boolean;
+  form?: boolean;
 }) => {
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
@@ -224,7 +229,15 @@ export const ChatPanel = ({
           />
         ))}
       </ol>
-      <ChatForm compact={compact} outerError={error} onSent={() => (stick.current = true)} />
+      {form ? (
+        <ChatForm compact={compact} outerError={error} onSent={() => (stick.current = true)} />
+      ) : (
+        error && (
+          <div className="chat-foot">
+            <span className="error">{error}</span>
+          </div>
+        )
+      )}
     </div>
   );
 };

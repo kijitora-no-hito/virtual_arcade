@@ -32,7 +32,7 @@ import { CLIENT_DIST } from './paths';
 import { hashKey } from './secret';
 
 declare const __VA_VERSION__: string | undefined;
-export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.4.0';
+export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.4.1';
 
 export interface AppOptions {
   dbPath: string;

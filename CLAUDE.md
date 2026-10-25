@@ -5,7 +5,7 @@
 バーチャルゲームセンター：ブラウザから入れるクオータービューの店内を歩き、チャット・エモーションでやりとりし、筐体に YouTube の配信と宣伝を置ける。
 **Android アプリではなく Web アプリ**（ワークスペース共通の Android 方針は当てはまらない）。仕様の正本は `docs/DESIGN.md`（Q1〜Q7 はユーザー決定済み。§8〜§10 は v0.3.0、§11〜§13 は v0.4.0）。
 
-- 版: v0.4.0（2026-10-25。スマホのレイアウト・コミュニケーションノート・機能追加要望箱を足した。v0.1.0〜v0.3.0 も同じ日）。GitHub `kijitora-no-hito/virtual_arcade`（公開・MIT ライセンス）。
+- 版: v0.4.1（2026-10-25。スマホでキーボードを出すと縦横が切り替わって発言の欄のキーボードがすぐ閉じていたのを直した。v0.4.0 でスマホのレイアウト・コミュニケーションノート・機能追加要望箱を足した。v0.1.0〜v0.3.0 も同じ日）。GitHub `kijitora-no-hito/virtual_arcade`（公開・MIT ライセンス）。
 - Node 22.13 以降（`node:sqlite` の `DatabaseSync` を使う。ネイティブビルドの要るパッケージは使わない方針）。
 
 ## 引き継ぎ（2026-10-25 時点。続きから始めるときは最初にここを読む）
@@ -14,6 +14,10 @@
 - **状態**：v0.1 の範囲（DESIGN §1〜§4）・v0.2.0 の店内の BGM（DESIGN §7）・v0.3.0 のクレーンゲーム（§8）・ポスター欄（§9）・チャットのピン止め（§10）・
   v0.4.0 のスマホのレイアウト（§11）・コミュニケーションノート（§12）・機能追加要望箱（§13）を実装済み。
   `npm test` 202 件・`npm run build`・`npm run package` が通る。v0.4.0 は下の「0.4.0 で決めたこと」。**v0.4.0 はユーザー未確認・スマホの実機は未確認**（DESIGN の末尾の表 M1〜R1 が叩き台）。
+  **v0.4.1**（画面だけの修正、DB 変更なし）：0.4.0 の公開版で Android Chrome（Pixel・縦）の人から「チャットの欄を押すとキーボードが一瞬出てすぐ閉じる」。
+  `interactive-widget=resizes-content` でキーボードが出ると表示域が 412×400 になり、幅と高さで決めていた `useLayout` が横向きに切り替え、縦と横で別の場所にあった発言の欄が作り直されてフォーカスが外れていた。
+  `layout.ts` の `nextLayout`（純粋・テストあり）で、文字の欄にフォーカスがある間と、幅が同じで高さだけ縮んだとき（screen.orientation が変わらない限り）は今のレイアウトのままにし、欄から離れたら決め直す。
+  スマホの下の欄の `ChatForm` は縦横で同じ場所の同じ要素にした（横向きの `ChatPanel` は `form={false}`）。確認は `scripts/dev/keyboard-check.mjs`（412×915 → 412×400、修正前は NG 21・修正後は NG 0）。
   v0.3.0 は下の「0.3.0 で決めたこと」。**v0.3.0 はユーザー未確認**（DESIGN の末尾の表 C1〜P3 が叩き台）。
   BGM は下の「0.2.0 で決めたこと」。**BGM はユーザー未確認**（耳で確かめていない。曲の雰囲気・音量・順番に回す長さは叩き台）。
   `release/virtual-arcade-0.1.0.tar.gz` を展開して `BASE_PATH=/arcade`・別ポートで起動し、ページ・API・WebSocket（`/arcade/ws` は 101、`/arcade/ws/arcade/ws` は 404）と画面を確認した。
@@ -37,7 +41,8 @@
      `#dev` の `__va` に `cam()`（カメラ・倍率の範囲）・`me()`・`open({kind:'note'|'request'|'crane'|…})`・`pick(x,y)`・`passable(x,y)`・`canvasRect()` を足した。
      指の操作の確認：`node scripts/dev/touch-check.mjs <URL#dev> <鍵> [out.png]`（タップで歩く・ドラッグ・ピンチ・タップで筐体）、
      `VIEWPORT=390x844 node scripts/dev/reach-check.mjs <URL#dev> <鍵> [out.png]`（店の端・置いてある物の前まで指で歩けるか・カメラが付いてくるか・四隅まで見回せるか・長押し・
-     チャットの欄のタップで店内が動かないか。横向きは `VIEWPORT=844x390`）、`node scripts/dev/note-check.mjs <URL#dev> <鍵>`（ノートのスワイプ・書く・その場の反映）。
+     チャットの欄のタップで店内が動かないか。横向きは `VIEWPORT=844x390`）、`node scripts/dev/note-check.mjs <URL#dev> <鍵>`（ノートのスワイプ・書く・その場の反映）、
+     `node scripts/dev/keyboard-check.mjs <URL#dev> <鍵>`（v0.4.1。Pixel 412×915 で欄にフォーカス → 高さだけ 412×400 に縮めてキーボードを真似る。チャット・シート・ノート・要望・ポスター・管理者・名前の欄と回転）。
      どれも `OK / NG` を 1 行ずつ出し、NG の数で終わる。ヘッドレスの Edge は前面・フォーカスありにしないとタッチの返事が来ないことがある（スクリプトの中でしている）。
      scene.mjs は v0.4.0 からノート 8 件（見開き 1 つ分）と要望 3 件も書く（架空の名前・当たり障りのない文）。
 - **BGM の確認の手順**（音は聞けないので数字で。自動）：上の 1・2 のあと
@@ -64,7 +69,7 @@
 | `server/` | Express（REST）+ `ws`（WebSocket `{BASE_PATH}/ws`）+ SQLite。開発は `tsx`、本番は esbuild で 1 ファイル（`npm run package`） |
 | `client/` | React + Vite + TS。店内は Canvas 2D（ライブラリなし）。**相対パスでビルド**（`base: './'`） |
 | `deploy/` | サーバに置く手順書 `INSTRUCTIONS.md`（一般的な書き方。example.com・`/arcade/`）・`virtual-arcade.service`・`apache-arcade.inc`（tar にも入る） |
-| `scripts/` | `package.mjs`（release の tar.gz）・`hash-admin.mjs`（管理者の合言葉のハッシュ。tar の `tools/` にも入る）・`dev/shot.mjs`（Edge ヘッドレスで撮る。スマホの大きさ・タップも）・`dev/scene.mjs`（確認用に人を入れる）・`dev/bgm-check.mjs`（店内の BGM の確認）・`dev/touch-check.mjs`・`dev/reach-check.mjs`・`dev/note-check.mjs`（v0.4.0。スマホの指の操作・店のどこへでも行けるか・ノート） |
+| `scripts/` | `package.mjs`（release の tar.gz）・`hash-admin.mjs`（管理者の合言葉のハッシュ。tar の `tools/` にも入る）・`dev/shot.mjs`（Edge ヘッドレスで撮る。スマホの大きさ・タップも）・`dev/scene.mjs`（確認用に人を入れる）・`dev/bgm-check.mjs`（店内の BGM の確認）・`dev/touch-check.mjs`・`dev/reach-check.mjs`・`dev/note-check.mjs`（v0.4.0。スマホの指の操作・店のどこへでも行けるか・ノート）・`dev/keyboard-check.mjs`（v0.4.1。キーボードが出ても欄のフォーカス・縦横が変わらないか） |
 | `data/` | 開発用の DB `virtual_arcade.db`（git 管理外）・`data/bgm/`（店内の BGM の曲：音声ファイルと一覧 `bgm.json` は git 管理外・tar に入る。git に入るのは `README.md` と例 `bgm.example.json`） |
 | `bgm/` | 元の mp3（`tools/bgm/` の入力。**git にも tar にも入れない**）・`_loop_preview/`（確認用の WAV） |
 | `tools/bgm/` | `loop_bgm.py`（ループ点を探してイントロ・本体の ogg を作る）・`loudness.py`（音量をそろえる）・`manifest.py`（bgm.json）・`loops.json`（ループ点。曲の名前が入るので git 管理外） |
@@ -117,7 +122,7 @@
   `videoDuck.ts`（視聴画面の動画と BGM の判断・YouTube の postMessage の読み取り。純粋）・`check.ts`（`#dev` の書き出しの確認だけ。遅延読み込み）
 - `game/craneGame.ts` クレーンゲームのミニゲーム（アームの段階・サーバの結果どおりの演出の組み立て・Canvas の描画）
 - `audio/sfx.ts` クレーンゲームの効果音（合成。`bgm.playSfx` で鳴らす。消音・音量に従う）
-- v0.4.0：`layout.ts`（PC / スマホの判断 `decideLayout`・`useLayout`（`<html>` の class）・設定 `va:mobile`）・`game/camera.ts`（スマホのカメラ：追従・ピンチ・ドラッグ・範囲・床と壁の大きな canvas。純粋。
+- v0.4.0：`layout.ts`（PC / スマホの判断 `decideLayout`・キーボードで切り替えない `nextLayout`（v0.4.1）・`useLayout`（`<html>` の class）・設定 `va:mobile`）・`game/camera.ts`（スマホのカメラ：追従・ピンチ・ドラッグ・範囲・床と壁の大きな canvas。純粋。
   テスト `client/test/camera.test.ts`）・`components/Mobile.tsx`（チャットの最新の行・下からのシート・メニュー）・`NoteDialog`（ノート）・`RequestDialog`（要望を送る）。
   `ArcadePage` はスマホのとき別の JSX（ヘッダ・店内・下の欄）と指の操作（pointer events）、PC は v0.3.0 のまま。`render.ts` は `View.ts`（文字の倍率）・`WorldLayer`・`promoDock`・`embedThumb`・ノートの机と要望箱
 - `components/` `Badges`（名前の後ろのバッジ。4 色）・`CraneDialog`（クレーンゲームの窓）・`PosterDialog`（ポスターの一覧・詳細・書く）・`EntryPage`（入店・名前と見た目。入店のボタンで BGM を鳴らせるようにする・BGM のクレジット・版）・`BgmControls`（下のバーの BGM の操作と曲の一覧）・`ArcadePage`（店内・描画のループ・キーボード・マウス・埋め込み）・`ChatPanel`・`CabinetDialog`・`ScreenDialog`（大画面の一覧）・`WatchView`（視聴画面）・`AdminDialog`
@@ -293,6 +298,14 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   DESIGN の末尾の表（M1 切り替えの幅・M2 既定の倍率と戻るまで・M3 横向きのチャット・M4 近くの配信・N1 ノートの置き場所・N2 ノートの案内・R1 要望箱の置き場所）、ノートの見た目（罫線・字）。
 - 筐体の箱は高いので、その奥の床は画面の上で箱と重なり、タップ・クリックでは筐体が開く（PC はキーボード、スマホは長押しで行ける）。
 - 店内の人数が多いと名前・吹き出しが重なる（重なりの調整はしていない）。
+
+## 確認したこと（v0.4.1）
+
+- `npm run build`・`npm test`（210 件。`client/test/layout.test.ts` を足した）・`npm run package`（SHA-256 `6afe51a9f3745ac771aacf6f21e175943eca231ac3aed85225f6c2b0a4549cd2`）が通る。
+- keyboard-check（別ポート 8798）：修正前の 0.4.0 の画面で NG 21（縦のチャットの欄はキーボードで横向きに切り替わり欄が作り直される・ほかの欄も横向きに切り替わる）、修正後は NG 0。
+- note-check は NG 0。touch-check・reach-check（縦）は NG 0 の回もあるが、走らせるたびに「タップで筐体の窓が開く」「ドラッグの分だけ店が動く」などが NG になる回がある。
+  reach-check（横 844×390）は「筐体の陰の床をタップすると筐体が開く」「チャットの欄の上のタップ・ドラッグで店内は動かない」が毎回 NG。
+  **どれも 0.4.0 の画面に戻して同じ手順で走らせても同じように NG になる**（この PC の今の Edge ヘッドレスでの揺れ。0.4.1 の変更によるものではない）。原因は未調査。
 
 ## 確認したこと（v0.4.0）
 
