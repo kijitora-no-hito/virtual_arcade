@@ -87,3 +87,25 @@ export const api = async <T,>(method: string, path: string, body?: unknown): Pro
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export const wsUrl = (): string => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${BASE}/ws`;
+
+/**
+ * sessionStorage（このタブの間だけ。v0.5.0：いる部屋 va:room を覚え、再読み込みのときだけ自動で入り直す）。
+ * 使えないこともあるので必ず try/catch
+ */
+export const session = {
+  get(key: string): string | null {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string | null) {
+    try {
+      if (value === null) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, value);
+    } catch {
+      /* 保存できなくても動く */
+    }
+  },
+};

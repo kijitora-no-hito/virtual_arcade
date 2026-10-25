@@ -1,8 +1,21 @@
-import { bgmCredit, BODY_COLORS, DEFAULT_LOOK, HEADWEAR, NAME_MAX, SYNTH_CREDIT, type Look, type MetaResponse, type Profile } from '@va/shared';
+import {
+  bgmCredit,
+  BODY_COLORS,
+  checkName,
+  DEFAULT_LOOK,
+  HEADWEAR,
+  NAME_MAX,
+  SYNTH_CREDIT,
+  type Look,
+  type MetaResponse,
+  type Profile,
+  type RoomId,
+} from '@va/shared';
 import { useEffect, useRef, useState } from 'react';
 import { errorText } from '../api';
 import { bgm } from '../audio/bgm';
 import { drawCharacter } from '../game/character';
+import { ReservationDialog, RoomDoorDialog } from './ReservationDialog';
 
 /** キャラクターの見本（大きく描く） */
 export const CharPreview = ({ look, size = 160 }: { look: Look; size?: number }) => {
@@ -35,11 +48,14 @@ export const EntryPage = ({
   onCancel,
   asDialog,
   mobile = false,
+  onEnsure,
 }: {
   meta: MetaResponse | null;
   initial: Profile | null;
   message?: string;
-  onEnter: (name: string, look: Look) => Promise<void>;
+  onEnter: (name: string, look: Look, room?: RoomId) => Promise<void>;
+  /** v0.5.0：予約する・予約部屋に入る前に、名前と見た目を決める（入店の画面だけ） */
+  onEnsure?: (name: string, look: Look) => Promise<Profile>;
   onCancel?: () => void;
   asDialog?: boolean;
   /** スマホのレイアウト（BGM の操作の場所の案内だけ変える） */
@@ -50,6 +66,18 @@ export const EntryPage = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const len = [...name.trim()].length;
+  // v0.5.0：入店の画面から予約表・予約部屋（DESIGN §14.3）
+  const [roomDialog, setRoomDialog] = useState<'schedule' | 'door' | null>(null);
+  const [me, setMe] = useState<Profile | null>(initial);
+  const ensureProfile = async (): Promise<Profile> => {
+    // 押した操作の中で BGM を鳴らせるようにする（予約部屋にそのまま入るとき）
+    bgm.unlock();
+    const c = checkName(name);
+    if (!c.name) throw new Error(`先に名前を入れてください（${c.error ?? '1〜20 文字'}）`);
+    const p = await onEnsure!(c.name, look);
+    setMe(p);
+    return p;
+  };
 
   const submit = async () => {
     if (busy) return;
@@ -131,6 +159,22 @@ export const EntryPage = ({
           {asDialog ? '変える' : '入店する'}
         </button>
       </div>
+      {!asDialog && onEnsure && (
+        <div className="entry-rooms">
+          <div className="entry-rooms-head">
+            <b>🔑 予約部屋</b>
+            <span className="muted small">予約した時間だけ合言葉で入れる、もう 1 つの部屋です</span>
+          </div>
+          <div className="entry-rooms-actions">
+            <button type="button" onClick={() => setRoomDialog('schedule')}>
+              📅 予約表・予約する
+            </button>
+            <button type="button" onClick={() => setRoomDialog('door')}>
+              🔑 予約部屋に入る（合言葉）
+            </button>
+          </div>
+        </div>
+      )}
       {!asDialog && (
         <p className="muted small">
           {meta ? `いま店内に ${meta.online} 人（${meta.maxPlayers} 人まで）。` : ''}
@@ -151,5 +195,31 @@ export const EntryPage = ({
     </form>
   );
   if (asDialog) return form;
-  return <div className="entry-page">{form}</div>;
+  return (
+    <div className="entry-page">
+      {form}
+      {roomDialog === 'schedule' && (
+        <ReservationDialog
+          you={me}
+          mobile={mobile}
+          onClose={() => setRoomDialog(null)}
+          onEnterRoom={() => setRoomDialog('door')}
+          ensureProfile={ensureProfile}
+        />
+      )}
+      {roomDialog === 'door' && (
+        <RoomDoorDialog
+          you={me}
+          inReserved={false}
+          onClose={() => setRoomDialog(null)}
+          onSchedule={() => setRoomDialog('schedule')}
+          ensureProfile={ensureProfile}
+          onEntered={() => {
+            setRoomDialog(null);
+            void onEnter(name.trim(), look, 'reserved').catch((e) => setError(errorText(e)));
+          }}
+        />
+      )}
+    </div>
+  );
 };

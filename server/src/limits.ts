@@ -51,6 +51,12 @@ export class RateLimiter {
     return true;
   }
 
+  /** 数えずに、もう上限に達しているかだけを見る（間違いだけを数える制限で、照合の前に使う） */
+  blocked(key: string, now = Date.now()): boolean {
+    const from = now - this.rule.windowMs;
+    return (this.hits.get(key) ?? []).filter((t) => t > from).length >= this.rule.limit;
+  }
+
   /** 古い記録を捨てる（定期的に呼ぶ） */
   sweep(now = Date.now()): void {
     const from = now - this.rule.windowMs;

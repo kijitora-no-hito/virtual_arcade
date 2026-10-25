@@ -23,11 +23,18 @@ import {
   type PosterInput,
   type PosterKind,
   type PosterView,
+  type ReservationView,
 } from '@va/shared';
 
 /** ポスターの行（書いた人の鍵のハッシュつき） */
 export interface PosterRow extends PosterView {
   authorKey: string;
+}
+
+/** 予約の行（v0.5.0。合言葉のハッシュ・予約した人の鍵のハッシュつき。どちらもクライアントには送らない） */
+export interface ReservationRow extends ReservationView {
+  passHash: string;
+  ownerKey: string;
 }
 
 export interface UserRow {
@@ -110,6 +117,19 @@ export class Store {
         name TEXT NOT NULL,
         text TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS reservations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        start_at INTEGER NOT NULL,
+        end_at INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        host TEXT NOT NULL,
+        description TEXT NOT NULL,
+        pass_hash TEXT NOT NULL,
+        owner_key TEXT NOT NULL,
+        owner_pid TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS reservations_end ON reservations(end_at);
       CREATE TABLE IF NOT EXISTS requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         at INTEGER NOT NULL,
@@ -449,6 +469,60 @@ export class Store {
 
   deleteRequest(id: number): boolean {
     return Number(this.db.prepare(`DELETE FROM requests WHERE id = ?`).run(id).changes) > 0;
+  }
+
+  // ---------------------------------------------------------------- 予約（v0.5.0。DESIGN §14。新しい表だけ。前の版はこの表を読まない）
+
+  private toReservation(r: Record<string, unknown>): ReservationRow {
+    return {
+      id: Number(r.id),
+      createdAt: Number(r.created_at),
+      startAt: Number(r.start_at),
+      endAt: Number(r.end_at),
+      title: String(r.title),
+      host: String(r.host),
+      description: String(r.description),
+      passHash: String(r.pass_hash),
+      ownerKey: String(r.owner_key),
+      ownerPid: String(r.owner_pid),
+    };
+  }
+
+  /** まだ終わっていない予約（終わりが after より後）を開始の順に */
+  listReservations(after: number): ReservationRow[] {
+    return (this.db.prepare(`SELECT * FROM reservations WHERE end_at > ? ORDER BY start_at ASC`).all(after) as Array<Record<string, unknown>>).map((r) =>
+      this.toReservation(r),
+    );
+  }
+
+  addReservation(r: Omit<ReservationRow, 'id'>): ReservationRow {
+    const res = this.db
+      .prepare(
+        `INSERT INTO reservations (created_at, start_at, end_at, title, host, description, pass_hash, owner_key, owner_pid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(r.createdAt, r.startAt, r.endAt, r.title, r.host, r.description, r.passHash, r.ownerKey, r.ownerPid);
+    return { ...r, id: Number(res.lastInsertRowid) };
+  }
+
+  /** 合言葉の付け替え・早めに終える（v0.5.0。主催者の操作） */
+  updateReservation(id: number, v: { passHash?: string; endAt?: number }): void {
+    if (v.passHash !== undefined) this.db.prepare(`UPDATE reservations SET pass_hash = ? WHERE id = ?`).run(v.passHash, id);
+    if (v.endAt !== undefined) this.db.prepare(`UPDATE reservations SET end_at = ? WHERE id = ?`).run(v.endAt, id);
+  }
+
+  deleteReservation(id: number): boolean {
+    return Number(this.db.prepare(`DELETE FROM reservations WHERE id = ?`).run(id).changes) > 0;
+  }
+
+  /** 古い行を消す（終わってから keepMs より前のもの・maxRows を超えた古いもの） */
+  pruneReservations(now: number, keepMs: number, maxRows: number): void {
+    this.db.prepare(`DELETE FROM reservations WHERE end_at < ?`).run(now - keepMs);
+    const n = Number((this.db.prepare(`SELECT COUNT(*) AS n FROM reservations`).get() as { n: number }).n);
+    if (n > maxRows) this.db.prepare(`DELETE FROM reservations WHERE id IN (SELECT id FROM reservations ORDER BY end_at ASC LIMIT ?)`).run(n - maxRows);
+  }
+
+  countReservations(): number {
+    return Number((this.db.prepare(`SELECT COUNT(*) AS n FROM reservations`).get() as { n: number }).n);
   }
 
   close(): void {

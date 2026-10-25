@@ -18,6 +18,7 @@ import {
   type Floor,
   type Notice,
   type PosterView,
+  type RoomId,
 } from '@va/shared';
 import { suitColor } from '../components/Badges';
 import { charTop, drawCharacter } from './character';
@@ -50,6 +51,16 @@ export interface SceneUi {
   promoDock?: boolean;
   /** スマホ：小さな配信の枠に動画ではなくサムネイルを描く（「▶ タップで視聴」） */
   embedThumb?: boolean;
+  /** v0.5.0：いる部屋と、扉・予約カレンダーの札（DESIGN §14） */
+  room?: RoomId;
+  hoverDoor?: boolean;
+  hoverCalendar?: boolean;
+  /** 扉の上の札（「🔑 予約部屋　次 19:00「〇〇」」など） */
+  doorSign?: string;
+  /** 扉のランプ（予約部屋が開いているか） */
+  doorOpen?: boolean;
+  /** 予約部屋：店内の上の中央に出す部屋名の帯 */
+  roomBanner?: string;
 }
 
 /** スマホ：床・壁を描いた大きな canvas と、その View（camera.ts の worldView） */
@@ -75,6 +86,9 @@ export interface SceneHits {
   /** ノートの机・要望箱（v0.4.0。DESIGN §12・§13） */
   notes: SP[][];
   requestBoxes: SP[][];
+  /** v0.5.0：予約部屋の扉・予約カレンダー */
+  doors: SP[][];
+  calendars: SP[][];
 }
 
 // ---------------------------------------------------------------- 小さな道具
@@ -236,13 +250,36 @@ const neonLine = (ctx: CanvasRenderingContext2D, a: SP, b: SP, color: string, wi
   ctx.restore();
 };
 
-/** 床・壁・入口・壁の飾り（大画面以外）を描く */
-export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FLOOR) => {
+/** 部屋ごとの色（v0.5.0。オープン部屋は v0.4 までと同じ色・予約部屋は琥珀と青緑で見分ける） */
+const THEMES = {
+  open: {
+    bg: ['#141033', '#05040f'],
+    wallL: ['#2a1a4d', '#130c2b'],
+    wallR: ['#22205a', '#0f0d2e'],
+    floor: ['#1c1740', '#221c4b'],
+    neonL: ['#ff3df0', 'rgba(255, 61, 240, 0.7)'],
+    neonR: ['#22e6ff', 'rgba(34, 230, 255, 0.7)'],
+    sign: ['VIRTUAL ARCADE', 'バーチャルゲームセンター', '#ff3df0', '#ffd1fb'],
+  },
+  reserved: {
+    bg: ['#1a1408', '#070503'],
+    wallL: ['#3d2a12', '#1a1006'],
+    wallR: ['#13343a', '#071518'],
+    floor: ['#1e1a12', '#262014'],
+    neonL: ['#ffb43d', 'rgba(255, 180, 61, 0.7)'],
+    neonR: ['#3dffd0', 'rgba(61, 255, 208, 0.7)'],
+    sign: ['RESERVED ROOM', '予約部屋（貸し切り）', '#ffb43d', '#ffe9c2'],
+  },
+} as const;
+
+/** 床・壁・入口・壁の飾り（大画面以外）を描く。room = 部屋の色（v0.5.0） */
+export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FLOOR, room: RoomId = 'open') => {
   const s = v.s;
+  const th = THEMES[room];
   // 背景
   const bg = ctx.createRadialGradient(v.w / 2, v.h * 0.55, 50, v.w / 2, v.h * 0.55, Math.max(v.w, v.h) * 0.75);
-  bg.addColorStop(0, '#141033');
-  bg.addColorStop(1, '#05040f');
+  bg.addColorStop(0, th.bg[0]);
+  bg.addColorStop(1, th.bg[1]);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, v.w, v.h);
 
@@ -251,8 +288,8 @@ export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FL
   const C0 = toScreen(v, 0, 0);
   const R0 = toScreen(v, f.cols, 0);
   const up = (p: SP, z: number) => ({ x: p.x, y: p.y - z * s });
-  drawWallFace(ctx, [L0, C0, up(C0, WALL_H), up(L0, WALL_H)], '#2a1a4d', '#130c2b');
-  drawWallFace(ctx, [C0, R0, up(R0, WALL_H), up(C0, WALL_H)], '#22205a', '#0f0d2e');
+  drawWallFace(ctx, [L0, C0, up(C0, WALL_H), up(L0, WALL_H)], th.wallL[0], th.wallL[1]);
+  drawWallFace(ctx, [C0, R0, up(R0, WALL_H), up(C0, WALL_H)], th.wallR[0], th.wallR[1]);
   // 壁の縦の目地
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 1;
@@ -275,7 +312,7 @@ export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FL
   for (let y = 0; y < f.rows; y++)
     for (let x = 0; x < f.cols; x++) {
       const pts = [toScreen(v, x, y), toScreen(v, x + 1, y), toScreen(v, x + 1, y + 1), toScreen(v, x, y + 1)];
-      ctx.fillStyle = (x + y) % 2 ? '#1c1740' : '#221c4b';
+      ctx.fillStyle = (x + y) % 2 ? th.floor[0] : th.floor[1];
       poly(ctx, pts);
       ctx.fill();
       for (let k = 0; k < 2; k++) {
@@ -312,10 +349,10 @@ export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FL
   }
 
   // 壁の上端と床ぎわのネオン
-  neonLine(ctx, up(L0, WALL_H), up(C0, WALL_H), '#ff3df0', 2.2 * s);
-  neonLine(ctx, up(C0, WALL_H), up(R0, WALL_H), '#22e6ff', 2.2 * s);
-  neonLine(ctx, up(L0, 6), up(C0, 6), 'rgba(255, 61, 240, 0.7)', 1.2 * s);
-  neonLine(ctx, up(C0, 6), up(R0, 6), 'rgba(34, 230, 255, 0.7)', 1.2 * s);
+  neonLine(ctx, up(L0, WALL_H), up(C0, WALL_H), th.neonL[0], 2.2 * s);
+  neonLine(ctx, up(C0, WALL_H), up(R0, WALL_H), th.neonR[0], 2.2 * s);
+  neonLine(ctx, up(L0, 6), up(C0, 6), th.neonL[1], 1.2 * s);
+  neonLine(ctx, up(C0, 6), up(R0, 6), th.neonR[1], 1.2 * s);
 
   // 入口（左の壁）
   const e = f.entrance;
@@ -362,14 +399,14 @@ export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FL
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = font(24 * s, 900);
-  ctx.shadowColor = '#ff3df0';
+  ctx.shadowColor = th.sign[2];
   ctx.shadowBlur = 18;
-  ctx.fillStyle = '#ffd1fb';
-  ctx.fillText('VIRTUAL ARCADE', 0, 0);
+  ctx.fillStyle = th.sign[3];
+  ctx.fillText(th.sign[0], 0, 0);
   ctx.font = font(14 * s, 800);
-  ctx.shadowColor = '#22e6ff';
+  ctx.shadowColor = th.neonR[0];
   ctx.fillStyle = '#cffaff';
-  ctx.fillText('バーチャルゲームセンター', 0, 22 * s);
+  ctx.fillText(th.sign[1], 0, 22 * s);
   ctx.restore();
 
   // 掲示板の枠（貼られたポスターは drawBoard で毎フレーム）
@@ -815,12 +852,132 @@ const NOTE_H = 34;
 const REQUEST_H = 60;
 const REQUEST_INSET = 0.26;
 
+/** 予約部屋の扉・予約カレンダー（v0.5.0。奥の壁ぎわに立つ薄い板） */
+const DOOR_H = 118;
+const CAL_H = 82;
+const CAL_LEG = 26;
+/** 壁ぎわの薄い板の箱（x は inset〜1-inset、y は壁から depth まで、高さ z0〜z1） */
+const panelBox = (v: View, x: number, y: number, inset: number, depth: number, z0: number, z1: number): Box => {
+  const c = [
+    [x + inset, y + 0.02],
+    [x + 1 - inset, y + 0.02],
+    [x + 1 - inset, y + depth],
+    [x + inset, y + depth],
+  ];
+  return {
+    floor: c.map(([gx, gy]) => toScreen(v, gx, gy, z0)),
+    top: c.map(([gx, gy]) => toScreen(v, gx, gy, z1)),
+    h: z1 - z0,
+  };
+};
+/** 板の手前の面（+y）に描く：左上が原点・横は画面の x・縦は下向き */
+const onPanel = (
+  ctx: CanvasRenderingContext2D,
+  v: View,
+  x: number,
+  y: number,
+  inset: number,
+  depth: number,
+  z1: number,
+  h: number,
+  fn: (fw: number, fh: number) => void,
+) => {
+  const left = toScreen(v, x + inset, y + depth, z1);
+  ctx.save();
+  ctx.transform(1, 0.5, 0, 1, left.x, left.y);
+  fn((1 - 2 * inset) * (TW / 2) * v.s, h * v.s);
+  ctx.restore();
+};
+
+const drawDoor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number, room: RoomId, open: boolean) => {
+  const res = room === 'reserved';
+  const frame = panelBox(v, d.x, d.y, 0.08, 0.2, 0, DOOR_H);
+  drawBox(ctx, frame, res ? '#7a5cff' : '#ffb43d', res ? '#3b2a8f' : '#8f5a12', res ? '#4d38b0' : '#a86b18');
+  onPanel(ctx, v, d.x, d.y, 0.08, 0.2, DOOR_H, DOOR_H, (fw, fh) => {
+    // 扉の板（2 枚）と窓・取っ手
+    ctx.fillStyle = res ? '#1d1546' : '#2a1606';
+    ctx.fillRect(fw * 0.1, fh * 0.12, fw * 0.8, fh * 0.88);
+    ctx.fillStyle = res ? '#5a46c9' : '#c98a2c';
+    ctx.fillRect(fw * 0.14, fh * 0.16, fw * 0.34, fh * 0.82);
+    ctx.fillRect(fw * 0.52, fh * 0.16, fw * 0.34, fh * 0.82);
+    ctx.fillStyle = res ? 'rgba(160, 200, 255, 0.55)' : 'rgba(255, 230, 170, 0.55)';
+    ctx.fillRect(fw * 0.2, fh * 0.24, fw * 0.22, fh * 0.2);
+    ctx.fillRect(fw * 0.58, fh * 0.24, fw * 0.22, fh * 0.2);
+    ctx.fillStyle = '#ffe14d';
+    ctx.beginPath();
+    ctx.arc(fw * 0.45, fh * 0.6, Math.max(1.2, fw * 0.03), 0, Math.PI * 2);
+    ctx.arc(fw * 0.55, fh * 0.6, Math.max(1.2, fw * 0.03), 0, Math.PI * 2);
+    ctx.fill();
+    // 札
+    ctx.fillStyle = res ? '#e9e4ff' : '#fff3d6';
+    ctx.fillRect(fw * 0.12, fh * 0.015, fw * 0.76, fh * 0.09);
+    ctx.fillStyle = res ? '#3b2a8f' : '#8f5a12';
+    ctx.font = font(Math.min(fw * 0.16, fh * 0.07), 900);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(res ? 'オープン部屋' : '予約部屋', fw / 2, fh * 0.062);
+  });
+  // ランプ（予約部屋が開いていれば緑、閉まっていれば赤。予約部屋の中では出口の緑）
+  const lamp = toScreen(v, d.x + 0.5, d.y + 0.2, DOOR_H + 7);
+  const on = res || open;
+  const a = 0.75 + 0.25 * Math.sin(t / 300);
+  ctx.save();
+  ctx.fillStyle = (on ? 'rgba(93, 255, 138, ' : 'rgba(255, 45, 85, ') + a.toFixed(3) + ')';
+  ctx.shadowColor = on ? '#5dff8a' : '#ff2d55';
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.arc(lamp.x, lamp.y, 4 * v.s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+};
+
+const drawCalendar = (ctx: CanvasRenderingContext2D, v: View, d: Decor) => {
+  const s = v.s;
+  // 脚（2 本）
+  ctx.strokeStyle = '#8a6a4a';
+  ctx.lineWidth = 2.2 * s;
+  for (const gx of [d.x + 0.25, d.x + 0.75]) {
+    const a = toScreen(v, gx, d.y + 0.34, 0);
+    const b = toScreen(v, gx, d.y + 0.16, CAL_LEG + 4);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  const board = panelBox(v, d.x, d.y, 0.12, 0.2, CAL_LEG, CAL_H);
+  drawBox(ctx, board, '#fffaf0', '#d8cfb8', '#e8dfc8', 'rgba(60, 40, 20, 0.5)');
+  onPanel(ctx, v, d.x, d.y, 0.12, 0.2, CAL_H, CAL_H - CAL_LEG, (fw, fh) => {
+    ctx.fillStyle = '#ff3d6e';
+    ctx.fillRect(0, 0, fw, fh * 0.22);
+    ctx.fillStyle = '#fff';
+    ctx.font = font(Math.min(fw * 0.17, fh * 0.15), 900);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('予約', fw / 2, fh * 0.115);
+    // 7 × 4 のます（予約の入った日に色）
+    const cw = (fw * 0.86) / 7;
+    const ch = (fh * 0.66) / 4;
+    for (let r = 0; r < 4; r++)
+      for (let c = 0; c < 7; c++) {
+        const k = (r * 7 + c) % 5;
+        ctx.fillStyle = k === 1 ? '#ffb43d' : k === 3 ? '#3dffd0' : '#e9e2cf';
+        ctx.fillRect(fw * 0.07 + c * cw + 0.6, fh * 0.28 + r * ch + 0.6, cw - 1.2, ch - 1.2);
+      }
+  });
+};
+
 /** 床の上の 4 点（タイル座標）を高さ z で多角形にする */
 const flat = (v: View, pts: Array<[number, number]>, z: number): SP[] => pts.map(([gx, gy]) => toScreen(v, gx, gy, z));
 
-const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number) => {
+const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number, ui?: SceneUi) => {
   const s = v.s;
   switch (d.type) {
+    case 'door':
+      drawDoor(ctx, v, d, t, ui?.room ?? 'open', !!ui?.doorOpen);
+      break;
+    case 'calendar':
+      drawCalendar(ctx, v, d);
+      break;
     case 'plant': {
       const b = boxAt(v, d.x, d.y, 0.3, 16);
       drawBox(ctx, b, '#8a5a3c', '#5b3a26', '#6e4630');
@@ -980,7 +1137,11 @@ const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number) 
 
 /** 飾りの当たり判定の箱 */
 const decorBox = (v: View, d: Decor): Box =>
-  d.type === 'note'
+  d.type === 'door'
+    ? panelBox(v, d.x, d.y, 0.08, 0.2, 0, DOOR_H)
+    : d.type === 'calendar'
+      ? panelBox(v, d.x, d.y, 0.12, 0.34, 0, CAL_H)
+      : d.type === 'note'
     ? boxAt(v, d.x, d.y, 0.1, NOTE_H)
     : d.type === 'requestbox'
       ? boxAt(v, d.x, d.y, REQUEST_INSET, REQUEST_H)
@@ -989,7 +1150,7 @@ const decorBox = (v: View, d: Decor): Box =>
 // ---------------------------------------------------------------- 頭上のもの
 
 const drawNameTag = (ctx: CanvasRenderingContext2D, x: number, y: number, s: number, p: ClientPlayer, me: boolean) => {
-  const label = `${p.admin ? '★ ' : ''}${p.name}`;
+  const label = `${p.admin ? '★ ' : ''}${p.host ? '［主催］' : ''}${p.name}`;
   const badges = [...(p.badges ?? '')].filter(isSuit);
   let h: number;
   if (!badges.length)
@@ -1322,7 +1483,11 @@ export const drawScene = (
   for (const d of FLOOR.decor) {
     const crane = d.type === 'crane' ? cranes.find((c) => c.x === d.x && c.y === d.y) : undefined;
     const hl =
-      (!!crane && ui.hoverCrane === crane.id) || (d.type === 'note' && !!ui.hoverNote) || (d.type === 'requestbox' && !!ui.hoverRequest);
+      (!!crane && ui.hoverCrane === crane.id) ||
+      (d.type === 'note' && !!ui.hoverNote) ||
+      (d.type === 'requestbox' && !!ui.hoverRequest) ||
+      (d.type === 'door' && !!ui.hoverDoor) ||
+      (d.type === 'calendar' && !!ui.hoverCalendar);
     items.push({
       d: d.x + d.y + 1,
       draw: () => {
@@ -1336,7 +1501,7 @@ export const drawScene = (
           ctx.stroke();
           ctx.restore();
         }
-        drawDecor(ctx, v, d, t);
+        drawDecor(ctx, v, d, t, ui);
       },
     });
   }
@@ -1402,7 +1567,39 @@ export const drawScene = (
     posters: posterHits,
     notes: FLOOR.decor.filter((d) => d.type === 'note').map((d) => boxOutline(decorBox(v, d))),
     requestBoxes: FLOOR.decor.filter((d) => d.type === 'requestbox').map((d) => boxOutline(decorBox(v, d))),
+    doors: FLOOR.decor.filter((d) => d.type === 'door').map((d) => boxOutline(decorBox(v, d))),
+    calendars: FLOOR.decor.filter((d) => d.type === 'calendar').map((d) => boxOutline(decorBox(v, d))),
   };
+  // 予約部屋の扉・予約カレンダーの札（いつも出す。カーソルを置いたら説明。v0.5.0）
+  for (const d of FLOOR.decor) {
+    if (d.type !== 'door' && d.type !== 'calendar') continue;
+    const door = d.type === 'door';
+    const top = toScreen(v, d.x + 0.5, d.y + 0.2, (door ? DOOR_H + 14 : CAL_H) + 8);
+    const res = ui.room === 'reserved';
+    const color = door ? (res ? '#7a5cff' : '#ffb43d') : '#ff3d6e';
+    const label = door ? (ui.doorSign ?? (res ? '🚪 オープン部屋へ' : '🔑 予約部屋')) : '📅 予約カレンダー';
+    const { h } = pill(ctx, top.x, top.y, label, 9.5 * ts, '#fff', 'rgba(20, 8, 40, 0.88)', color);
+    const hover = door ? !!ui.hoverDoor : !!ui.hoverCalendar;
+    if (hover)
+      pill(
+        ctx,
+        top.x,
+        top.y - h - 3 * ts,
+        door ? (res ? 'クリックでオープン部屋へ戻る' : '予約部屋の扉　クリックで入る') : '予約カレンダー　クリックで予約表',
+        10.5 * ts,
+        '#fff',
+        'rgba(20, 8, 40, 0.92)',
+        color,
+      );
+  }
+  // 予約部屋：上の中央に部屋名の帯
+  if (ui.roomBanner) {
+    ctx.save();
+    ctx.shadowColor = '#ffb43d';
+    ctx.shadowBlur = 10;
+    pill(ctx, v.w / 2, 12 + 22 * ts, ui.roomBanner, 13 * ts, '#1a1006', '#ffcf73', '#fff1cf');
+    ctx.restore();
+  }
   // ノートの机・要望箱の小さな札（いつも出す。カーソルを置いたら説明）
   for (const d of FLOOR.decor) {
     if (d.type !== 'note' && d.type !== 'requestbox') continue;

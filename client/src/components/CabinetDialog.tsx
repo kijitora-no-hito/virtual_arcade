@@ -47,6 +47,8 @@ export const CabinetDialog = ({
   const you = client.you;
   const mine = !!c?.ownerPid && c.ownerPid === you?.pid;
   const admin = !!you?.admin;
+  /** v0.5.0：予約部屋の主催者（その予約の間だけ）。設定は変えられないが、空けられる */
+  const host = !admin && client.room === 'reserved' && !!you && client.reservations.some((r) => r.ownerPid === you.pid && r.startAt <= client.serverNow() && client.serverNow() < r.endAt);
   const spot = FLOOR.cabinets.find((x) => x.id === id)!;
   const myTile = me ? { x: Math.round(me.rx), y: Math.round(me.ry) } : null;
   const near = !!myTile && cabinetDistance(myTile, spot) <= 2;
@@ -167,12 +169,12 @@ export const CabinetDialog = ({
           </div>
         )}
 
-        {canEdit && !editing && (
+        {(canEdit || host) && !editing && (
           <div className="cab-actions">
-            <button onClick={() => setEditing(true)}>{admin && !mine ? '管理者として設定を変える' : '設定を変える'}</button>
+            {canEdit && <button onClick={() => setEditing(true)}>{admin && !mine ? '管理者として設定を変える' : '設定を変える'}</button>}
             {(c.owned || c.videoId || c.eventName) && (
               <button className="danger" disabled={busy} onClick={release}>
-                {admin && !mine ? '管理者として空ける' : '空ける'}
+                {admin && !mine ? '管理者として空ける' : host && !mine ? '主催者として空ける' : '空ける'}
               </button>
             )}
           </div>

@@ -64,7 +64,15 @@ export interface Config {
     /** 要望を送る（鍵ごと / IP ごと） */
     requestKey: RateRule;
     request: RateRule;
+    /** v0.5.0：予約する（鍵ごと / IP ごと） */
+    reserveKey: RateRule;
+    reserve: RateRule;
+    /** v0.5.0：予約部屋の合言葉の間違い（鍵ごと / IP ごと。合ったときは数えない） */
+    passKey: RateRule;
+    pass: RateRule;
   };
+  /** サーバの版（welcome で返す。クライアントの版と違えば再読み込みを頼む） */
+  version?: string;
   /** クレーンゲーム：1 回ごとの待ち時間 */
   craneCooldownMs: number;
   /** クレーンゲーム：つかめる確率 */
@@ -143,6 +151,10 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
       note: { limit: 10, windowMs: 10 * 60 * 1000 },
       requestKey: { limit: 5, windowMs: 60 * 60 * 1000 },
       request: { limit: 10, windowMs: 60 * 60 * 1000 },
+      reserveKey: { limit: 6, windowMs: 60 * 60 * 1000 },
+      reserve: { limit: 12, windowMs: 60 * 60 * 1000 },
+      passKey: { limit: 5, windowMs: 10 * 60 * 1000 },
+      pass: { limit: 20, windowMs: 10 * 60 * 1000 },
     },
     craneCooldownMs: env.CRANE_COOLDOWN_SEC ? int(env.CRANE_COOLDOWN_SEC, 20, 1, 3600) * 1000 : DEFAULT_CRANE_COOLDOWN_MS,
     craneOdds: {

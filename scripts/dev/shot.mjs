@@ -6,6 +6,7 @@
 //   AFTER_MS：eval 式のあと、撮るまでに待つ時間（ボタンを押して窓が開くのを待つ）
 //   v0.4.0（スマホ）：VIEWPORT="390x844"（既定 1920x1080）・MOBILE=1（mobile: true とタッチの操作。DPR の既定 2）・DPR=…
 //   TAP="x,y;x,y" / TAP_EXPR：指でタップ（Input.dispatchTouchEvent）。CLICK より後、eval 式より前
+//   v0.5.0：ROOM=open（既定）/ reserved で sessionStorage の va:room を入れる（その部屋へ自動で入る）。ROOM=none で入店の画面
 // --virtual-time-budget だと WebSocket の受信前に撮れてしまうので、実時間で待ってから撮る
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -19,9 +20,26 @@ const port = Number(process.env.CDP_PORT ?? 9361);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'va-edge-'));
 const p = spawn(
   edge,
-  ['--headless=new', '--window-size=1920,1080', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
+  ['--headless=new', '--mute-audio', '--window-size=1920,1080', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
   { stdio: 'ignore' },
 );
+
+// Edge を必ず閉じる（終わり・失敗・Ctrl+C）。ヘッドレスでも音は出るので --mute-audio で起動している（v0.5.0）
+const killEdge = () => {
+  try {
+    p.kill();
+  } catch {}
+};
+process.on('exit', killEdge);
+process.on('SIGINT', () => process.exit(130));
+process.on('uncaughtException', (e) => {
+  console.error(e);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(e);
+  process.exit(1);
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let list = null;
 for (let i = 0; i < 60 && !list; i++) {
@@ -66,6 +84,9 @@ if (lsJson) {
   const kv = JSON.parse(lsJson);
   for (const [k, v] of Object.entries(kv))
     await send('Runtime.evaluate', { expression: `localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(JSON.stringify(v))})` });
+  // v0.5.0：このタブで店内にいた（再読み込み）ことにして、その部屋へ自動で入る。ROOM=none なら入店の画面を出す
+  const room = process.env.ROOM ?? 'open';
+  if (room !== 'none') await send('Runtime.evaluate', { expression: `sessionStorage.setItem('va:room', ${JSON.stringify(room)})` });
 }
 await send('Page.navigate', { url });
 await sleep(Number(waitMs));

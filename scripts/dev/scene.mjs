@@ -39,7 +39,7 @@ const join = async (name, look, key = newKey()) => {
   const ws = new WebSocket(wsUrl());
   const bot = { key, name, ws, pid: null, at: null };
   await new Promise((resolve, reject) => {
-    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', key })));
+    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', key, proto: 2 })));
     ws.on('message', (d) => {
       const m = JSON.parse(String(d));
       if (m.type === 'welcome') {

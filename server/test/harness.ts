@@ -71,7 +71,7 @@ export const harness = async (name: string, config: Partial<Config> = {}, extra:
     return { status: res.status, body: json as T };
   };
 
-  const connect = (key: string, wsPath = `${prefix}/ws`): Promise<Client> =>
+  const connect = (key: string, wsPath = `${prefix}/ws`, room?: string): Promise<Client> =>
     new Promise((resolve, reject) => {
       const ws = new WebSocket(`${origin.replace('http', 'ws')}${wsPath}`);
       const msgs: ServerMessage[] = [];
@@ -116,7 +116,7 @@ export const harness = async (name: string, config: Partial<Config> = {}, extra:
         if (m.type === 'error' && !c.welcome) resolve(c);
         waiters.forEach((w) => w());
       });
-      ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', key })));
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', key, proto: 2, ...(room ? { room } : {}) })));
       ws.on('error', reject);
       ws.on('unexpected-response', (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
       clients.push(c);

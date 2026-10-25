@@ -11,10 +11,19 @@ import {
   noteSpots,
   positionAt,
   requestBoxSpots,
+  activeReservation,
+  doorSpots,
+  jstDate,
+  jstDayStart,
+  jstTime,
+  nextReservation,
+  ROOM_OBJECT_NEAR,
   type MetaResponse,
+  type ReservationView,
+  type RoomId,
 } from '@va/shared';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
-import { api, errorText } from '../api';
+import { api, errorText, session } from '../api';
 import { bgm } from '../audio/bgm';
 import { DUCK_INITIAL, duckReducer } from '../audio/videoDuck';
 import {
@@ -51,6 +60,8 @@ import { ChatPeek, ChatSheet, MobileMenu } from './Mobile';
 import { NoteDialog } from './NoteDialog';
 import { PosterDialog } from './PosterDialog';
 import { RequestDialog } from './RequestDialog';
+import { ReservationDialog, RoomDoorDialog } from './ReservationDialog';
+import { RoomAdminDialog, RoomClock } from './RoomAdmin';
 import { ScreenDialog } from './ScreenDialog';
 import { WatchView } from './WatchView';
 
@@ -65,6 +76,9 @@ type Dialog =
   | { kind: 'posters'; id: number | null }
   | { kind: 'note' }
   | { kind: 'request' }
+  | { kind: 'reserve'; initial?: 'calendar' | 'list' }
+  | { kind: 'door' }
+  | { kind: 'roomAdmin' }
   | null;
 
 type Hit =
@@ -74,10 +88,39 @@ type Hit =
   | { kind: 'board'; poster: number | null }
   | { kind: 'note' }
   | { kind: 'request' }
+  | { kind: 'door' }
+  | { kind: 'calendar' }
   | { kind: 'floor'; x: number; y: number };
 
-/** 遠くからクリックして歩いている：着いたら開く窓（クレーンゲーム・ノート・要望箱） */
-type Pending = { kind: 'crane'; id: number } | { kind: 'note' } | { kind: 'request' };
+/** 遠くからクリックして歩いている：着いたら開く窓（クレーンゲーム・ノート・要望箱・予約部屋の扉） */
+type Pending = { kind: 'crane'; id: number } | { kind: 'note' } | { kind: 'request' } | { kind: 'door' };
+
+/** 置いてある物の場所と「近い」の距離 */
+const pendingSpot = (pend: Pending) =>
+  pend.kind === 'crane'
+    ? craneSpot(pend.id)
+    : pend.kind === 'note'
+      ? noteSpots()[0]
+      : pend.kind === 'door'
+        ? doorSpots()[0]
+        : requestBoxSpots()[0];
+const pendingNear = (pend: Pending) => (pend.kind === 'crane' ? CRANE_NEAR : pend.kind === 'door' ? ROOM_OBJECT_NEAR : NOTE_NEAR);
+
+/** 扉の上の札（予約部屋の今と次。v0.5.0） */
+const doorSignText = (room: RoomId, list: ReservationView[], now: number): { sign: string; open: boolean; banner?: string } => {
+  const active = activeReservation(list, now);
+  if (room === 'reserved')
+    return {
+      sign: '🚪 オープン部屋へ',
+      open: true,
+      banner: active ? `🔑 予約部屋「${active.title}」〜${jstTime(active.endAt)}（予約：${active.host}）` : '🔑 予約部屋',
+    };
+  if (active) return { sign: `🔑 予約部屋：「${active.title}」開催中 残り${Math.max(1, Math.ceil((active.endAt - now) / 60000))}分`, open: true };
+  const next = nextReservation(list, now);
+  if (!next) return { sign: '🔑 予約部屋（本日の予約なし）', open: false };
+  const today = jstDayStart(now) === jstDayStart(next.startAt);
+  return { sign: `🔑 予約部屋　${today ? '本日' : jstDate(next.startAt)} ${jstTime(next.startAt)}〜「${next.title}」`, open: false };
+};
 
 /** スマホの指の操作（DESIGN §11.4） */
 type Gesture =
@@ -104,15 +147,19 @@ export const ArcadePage = ({
   onNeedEntry,
   onEditProfile,
   onLeft,
+  initialRoom = 'open',
 }: {
   meta: MetaResponse | null;
   layout: Layout;
+  /** v0.5.0：入る部屋（入店の画面で予約部屋の合言葉を入れたとき・予約部屋で再読み込みしたとき reserved） */
+  initialRoom?: RoomId;
   onNeedEntry: (message?: string) => void;
   onEditProfile: () => void;
   /** 退店した（入店の画面へ） */
   onLeft: () => void;
 }) => {
-  const client = useMemo(() => new ArcadeClient(), []);
+  const client = useMemo(() => new ArcadeClient(initialRoom), []);
+  const room = client.room;
   useSyncExternalStore(client.subscribe, client.getVersion);
   const mobile = layout.mobile;
 
@@ -148,7 +195,9 @@ export const ArcadePage = ({
     hoverPoster: null as number | null,
     hoverNote: false,
     hoverRequest: false,
-    /** 遠くのクレーンゲーム・ノート・要望箱をクリックした：着いたら窓を開く */
+    hoverDoor: false,
+    hoverCalendar: false,
+    /** 遠くのクレーンゲーム・ノート・要望箱・扉をクリックした：着いたら窓を開く */
     pending: null as Pending | null,
     target: null as SceneUi['target'],
     keys: new Set<string>(),
@@ -182,6 +231,14 @@ export const ArcadePage = ({
     client.connect();
     return () => client.close();
   }, [client]);
+  // v0.5.0：部屋が変わった（扉・予約の時間の終わり）。開いている窓・視聴画面を閉じ、再読み込みでこの部屋に入り直せるよう覚える
+  useEffect(() => {
+    if (!client.connected) return;
+    session.set('va:room', room);
+    setDialog((d) => (d?.kind === 'reserve' ? d : null));
+    setWatching(null);
+    live.current.pending = null;
+  }, [client.roomSeq]);
 
   // ---- 店内の BGM：この画面が出ている間だけ鳴らす。入店のボタンで鳴らせるようになっていなければ（再読み込みで自動入店など）、
   // 最初のクリック・キー入力で鳴らし始める（ブラウザの自動再生の制限）
@@ -269,7 +326,7 @@ export const ArcadePage = ({
       c.height = Math.ceil(wv.h * pr);
       const x = c.getContext('2d')!;
       x.setTransform(pr, 0, 0, pr, 0, 0);
-      drawStatic(x, wv);
+      drawStatic(x, wv, FLOOR, client.room);
       live.current.world = { canvas: c, view: wv };
     };
 
@@ -301,7 +358,7 @@ export const ArcadePage = ({
       staticLayer.height = canvas.height;
       const sctx = staticLayer.getContext('2d')!;
       sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawStatic(sctx, v);
+      drawStatic(sctx, v, FLOOR, client.room);
     };
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
@@ -337,6 +394,9 @@ export const ArcadePage = ({
         },
         note: () => (live.current.hits?.notes[0] ? center(live.current.hits.notes[0]) : null),
         requestBox: () => (live.current.hits?.requestBoxes[0] ? center(live.current.hits.requestBoxes[0]) : null),
+        door: () => (live.current.hits?.doors[0] ? center(live.current.hits.doors[0]) : null),
+        calendar: () => (live.current.hits?.calendars[0] ? center(live.current.hits.calendars[0]) : null),
+        room: () => client.room,
         screen: () => (live.current.hits ? center(live.current.hits.screen) : null),
         bgm: () => bgm.debug(),
         // 視聴画面の動画の状態が届いたことにする（ヘッドレスでは埋め込みが再生しないため）
@@ -492,8 +552,8 @@ export const ArcadePage = ({
         // 遠くのクレーンゲーム・ノート・要望箱をクリックして歩いている：着いたら（2 マス以内で止まったら）窓を開く
         if (L.pending !== null && me) {
           const pend = L.pending;
-          const spot = pend.kind === 'crane' ? craneSpot(pend.id) : pend.kind === 'note' ? noteSpots()[0] : requestBoxSpots()[0];
-          const near = pend.kind === 'crane' ? CRANE_NEAR : NOTE_NEAR;
+          const spot = pendingSpot(pend);
+          const near = pendingNear(pend);
           const pos = positionAt(me.path, me.startedAt, client.serverNow());
           if (spot && pos.done && cabinetDistance({ x: Math.round(me.rx), y: Math.round(me.ry) }, spot) <= near) {
             L.pending = null;
@@ -519,7 +579,16 @@ export const ArcadePage = ({
           hoverRequest: L.hoverRequest,
           promoDock: L.mobile,
           embedThumb: L.embedThumb,
+          room: client.room,
+          hoverDoor: L.hoverDoor,
+          hoverCalendar: L.hoverCalendar,
         };
+        {
+          const d = doorSignText(client.room, client.reservations, sNow);
+          ui.doorSign = d.sign;
+          ui.doorOpen = d.open;
+          ui.roomBanner = d.banner;
+        }
         const dpr = window.devicePixelRatio || 1;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         L.hits = drawScene(ctx, v, L.mobile ? L.world : staticLayer, client, poses, ui, now);
@@ -547,7 +616,7 @@ export const ArcadePage = ({
       ro.disconnect();
       canvas.removeEventListener('touchend', noGhost);
     };
-  }, [client, mobile]);
+  }, [client, mobile, room]);
 
   // 筐体の配信が変わったら埋め込みも差し替え
   const embedCabVideo = embed ? client.cabinets.get(embed.id)?.videoId : null;
@@ -596,6 +665,9 @@ export const ArcadePage = ({
     // ノートの机・要望箱（v0.4.0）
     if (L.hits.notes.some((p) => inPoly(p, x, y))) return { kind: 'note' };
     if (L.hits.requestBoxes.some((p) => inPoly(p, x, y))) return { kind: 'request' };
+    // 予約部屋の扉・予約カレンダー（v0.5.0）
+    if (L.hits.doors.some((p) => inPoly(p, x, y))) return { kind: 'door' };
+    if (L.hits.calendars.some((p) => inPoly(p, x, y))) return { kind: 'calendar' };
     if (inPoly(L.hits.screen, x, y)) return { kind: 'screen' };
     // 掲示板（壁の上。紙をクリックしたらそのポスター）
     if (inPoly(L.hits.board, x, y)) {
@@ -626,6 +698,8 @@ export const ArcadePage = ({
     L.hoverPoster = hit?.kind === 'board' ? hit.poster : null;
     L.hoverNote = hit?.kind === 'note';
     L.hoverRequest = hit?.kind === 'request';
+    L.hoverDoor = hit?.kind === 'door';
+    L.hoverCalendar = hit?.kind === 'calendar';
     const want =
       hit && hit.kind !== 'floor' ? 'pointer' : hit?.kind === 'floor' && isPassable(FLOOR, hit.x, hit.y) ? 'crosshair' : 'default';
     if (want !== cursor) setCursor(want);
@@ -640,11 +714,13 @@ export const ArcadePage = ({
     L.hoverPoster = null;
     L.hoverNote = false;
     L.hoverRequest = false;
+    L.hoverDoor = false;
+    L.hoverCalendar = false;
   };
   /** 近ければ窓を開く。遠ければ前のマスまで歩いてから開く（クレーンゲーム DESIGN §8.1・ノート §12.1・要望箱 §13.1） */
   const openNear = (pend: Pending) => {
-    const spot = pend.kind === 'crane' ? craneSpot(pend.id) : pend.kind === 'note' ? noteSpots()[0] : requestBoxSpots()[0];
-    const near = pend.kind === 'crane' ? CRANE_NEAR : NOTE_NEAR;
+    const spot = pendingSpot(pend);
+    const near = pendingNear(pend);
     const me = client.me();
     if (!spot || !me) return;
     const open = () => setDialog(pend.kind === 'crane' ? { kind: 'crane', id: pend.id } : { kind: pend.kind });
@@ -666,16 +742,26 @@ export const ArcadePage = ({
     client.send({ type: 'goto', x: to.x, y: to.y });
     live.current.target = { x: to.x, y: to.y, at: performance.now() };
     live.current.pending = pend;
-    client.showToast(pend.kind === 'crane' ? 'クレーンゲームまで歩いています…' : pend.kind === 'note' ? 'ノートまで歩いています…' : '要望箱まで歩いています…');
+    client.showToast(
+      pend.kind === 'crane'
+        ? 'クレーンゲームまで歩いています…'
+        : pend.kind === 'note'
+          ? 'ノートまで歩いています…'
+          : pend.kind === 'door'
+            ? '扉まで歩いています…'
+            : '要望箱まで歩いています…',
+    );
   };
   /** クリック・タップしたもの */
   const act = (hit: Hit | null) => {
     if (!hit) return;
-    if (hit.kind !== 'crane' && hit.kind !== 'note' && hit.kind !== 'request') live.current.pending = null;
+    if (hit.kind !== 'crane' && hit.kind !== 'note' && hit.kind !== 'request' && hit.kind !== 'door') live.current.pending = null;
     if (hit.kind === 'cabinet') setDialog({ kind: 'cabinet', id: hit.id });
     else if (hit.kind === 'crane') openNear({ kind: 'crane', id: hit.id });
     else if (hit.kind === 'note') openNear({ kind: 'note' });
     else if (hit.kind === 'request') openNear({ kind: 'request' });
+    else if (hit.kind === 'door') openNear({ kind: 'door' });
+    else if (hit.kind === 'calendar') setDialog({ kind: 'reserve' });
     else if (hit.kind === 'screen') setDialog({ kind: 'screen' });
     else if (hit.kind === 'board') setDialog({ kind: 'posters', id: hit.poster });
     else if (isPassable(FLOOR, hit.x, hit.y)) {
@@ -858,6 +944,27 @@ export const ArcadePage = ({
   }, [client.toast, client]);
 
   const fatal = client.fatal;
+  const activeRes = activeReservation(client.reservations, client.serverNow());
+  /** v0.5.0：予約部屋の主催者（いまの予約を予約した人。予約部屋の中だけ）。サイトの管理者も部屋の管理ができる */
+  const isHost = room === 'reserved' && !!activeRes && !!you && activeRes.ownerPid === you.pid;
+  const canManage = room === 'reserved' && (isHost || !!you?.admin);
+  const clock = room === 'reserved' && activeRes ? (compact: boolean) => <RoomClock end={activeRes.endAt} serverNow={() => client.serverNow()} compact={compact} /> : null;
+  const leaveReserved = async () => {
+    try {
+      await api('POST', '/api/rooms/open/enter');
+    } catch (e) {
+      client.showToast(errorText(e));
+    }
+  };
+  /** 新しい版がサーバに置かれた（このページは古い）。再読み込みを勧める */
+  const outdated = client.outdated && (
+    <div className="outdated">
+      新しい版があります
+      <button className="small primary" onClick={() => location.reload()}>
+        再読み込み
+      </button>
+    </div>
+  );
 
   // 退店：クレーンゲームのバッジが消える。サーバが接続を切る（bye）
   const leave = async () => {
@@ -884,7 +991,7 @@ export const ArcadePage = ({
       form={form}
       messages={client.chat}
       myPid={you?.pid ?? null}
-      admin={!!you?.admin}
+      admin={!!you?.admin || isHost}
       online={players.length}
       maxPlayers={client.maxPlayers}
       connected={client.connected}
@@ -931,6 +1038,7 @@ export const ArcadePage = ({
         <WatchView cabinet={watchedCab} onBack={stopWatch} onPlayerState={onPlayerState} chat={mobile ? chatPanel(true) : undefined} />
       )}
       {toast && <div className="toast">{toast}</div>}
+      {outdated}
       {fatal && (fatal.code === 'kicked' || fatal.code === 'replaced' || fatal.code === 'full' || fatal.code === 'other') && (
         <div className="fatal">
           <div className="fatal-card">
@@ -979,6 +1087,29 @@ export const ArcadePage = ({
         <NoteDialog client={client} perView={mobile && !layout.landscape ? 1 : 2} mobile={mobile} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'request' && <RequestDialog myName={you?.name ?? ''} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'reserve' && (
+        <ReservationDialog
+          you={you}
+          mobile={mobile}
+          liveKey={client.reservations}
+          initial={dialog.initial}
+          onClose={() => setDialog(null)}
+          onEnterRoom={() => setDialog({ kind: 'door' })}
+        />
+      )}
+      {dialog?.kind === 'roomAdmin' && you && canManage && (
+        <RoomAdminDialog you={you} reservation={activeRes} players={players} notices={client.notices} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === 'door' && (
+        <RoomDoorDialog
+          you={you}
+          inReserved={room === 'reserved'}
+          liveKey={client.reservations}
+          onClose={() => setDialog(null)}
+          onEntered={() => setDialog(null)}
+          onSchedule={() => setDialog({ kind: 'reserve' })}
+        />
+      )}
       {dialog?.kind === 'admin' && you && (
         <AdminDialog
           you={you}
@@ -996,7 +1127,9 @@ export const ArcadePage = ({
   // ---------------------------------------------------------------- スマホのレイアウト（DESIGN §11）
   if (mobile)
     return (
-      <div className={`arcade m-arcade ${layout.landscape ? 'm-land' : 'm-port'} ${layout.landscape && chatCollapsed ? 'm-folded' : ''}`}>
+      <div
+        className={`arcade m-arcade ${layout.landscape ? 'm-land' : 'm-port'} ${layout.landscape && chatCollapsed ? 'm-folded' : ''} ${room === 'reserved' ? 'room-reserved' : ''}`}
+      >
         <header className="m-top">
           {layout.landscape && (
             <button
@@ -1008,13 +1141,23 @@ export const ArcadePage = ({
               {chatCollapsed ? '💬' : '›'}
             </button>
           )}
-          <span className="m-logo">V.ARCADE</span>
+          {room === 'reserved' ? (
+            <button className="m-room-pill" onClick={() => setDialog({ kind: 'door' })} title="オープン部屋へ戻る">
+              🔑 {activeRes ? activeRes.title : '予約部屋'}
+            </button>
+          ) : (
+            <span className="m-logo">V.ARCADE</span>
+          )}
           <span className="pill-info" title="店内の人数">
             👥 {players.length}/{client.maxPlayers}
           </span>
-          <span className="pill-info" title="配信中の筐体">
-            📺 {liveCount}
-          </span>
+          {clock ? (
+            clock(true)
+          ) : (
+            <span className="pill-info" title="配信中の筐体">
+              📺 {liveCount}
+            </span>
+          )}
           {!client.connected && !fatal && <span className="pill-info warn">再接続中…</span>}
           <span className="m-spacer" />
           <button className="ghost m-icon m-menu-btn" onClick={() => setMenuOpen(true)} aria-label="メニュー">
@@ -1058,6 +1201,24 @@ export const ArcadePage = ({
               setMenuOpen(false);
               void leave();
             }}
+            room={room}
+            onSchedule={() => {
+              setMenuOpen(false);
+              setDialog({ kind: 'reserve' });
+            }}
+            onDoor={() => {
+              setMenuOpen(false);
+              setDialog({ kind: 'door' });
+            }}
+            onRoomAdmin={
+              canManage
+                ? () => {
+                    setMenuOpen(false);
+                    setDialog({ kind: 'roomAdmin' });
+                  }
+                : undefined
+            }
+            host={isHost}
             onClose={() => setMenuOpen(false)}
             version={meta?.version}
             adminBadge={unread}
@@ -1069,7 +1230,7 @@ export const ArcadePage = ({
 
   // ---------------------------------------------------------------- PC のレイアウト（v0.3.0 のまま）
   return (
-    <div className="arcade">
+    <div className={`arcade ${room === 'reserved' ? 'room-reserved' : ''}`}>
       <header className="topbar">
         <div className="logo">
           <span className="logo-main">VIRTUAL ARCADE</span>
@@ -1079,6 +1240,22 @@ export const ArcadePage = ({
           <span className="pill-info">店内 {players.length} / {client.maxPlayers} 人</span>
           <span className="pill-info">配信中 {liveCount} 台</span>
           {!client.connected && !fatal && <span className="pill-info warn">再接続しています…</span>}
+          {room === 'reserved' && (
+            <>
+              <span className="pill-info room-pill" title={activeRes ? `予約部屋「${activeRes.title}」〜${jstTime(activeRes.endAt)}（予約：${activeRes.host}）` : '予約部屋'}>
+                🔑「{activeRes?.title ?? '予約部屋'}」
+              </span>
+              {clock?.(false)}
+              {canManage && (
+                <button className="small room-admin-btn" onClick={() => setDialog({ kind: 'roomAdmin' })}>
+                  🛠 部屋の管理
+                </button>
+              )}
+              <button className="small" onClick={() => void leaveReserved()}>
+                🚪 オープン部屋へ
+              </button>
+            </>
+          )}
         </div>
         <div className="topbar-right">
           {you && (

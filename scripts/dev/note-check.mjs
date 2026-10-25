@@ -15,9 +15,26 @@ const [vw, vh] = (process.env.VIEWPORT ?? '390x844').split('x').map(Number);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'va-edge-'));
 const p = spawn(
   edge,
-  ['--headless=new', '--window-size=1920,1080', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
+  ['--headless=new', '--mute-audio', '--window-size=1920,1080', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
   { stdio: 'ignore' },
 );
+
+// Edge を必ず閉じる（終わり・失敗・Ctrl+C）。ヘッドレスでも音は出るので --mute-audio で起動している（v0.5.0）
+const killEdge = () => {
+  try {
+    p.kill();
+  } catch {}
+};
+process.on('exit', killEdge);
+process.on('SIGINT', () => process.exit(130));
+process.on('uncaughtException', (e) => {
+  console.error(e);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(e);
+  process.exit(1);
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let list = null;
 for (let i = 0; i < 60 && !list; i++) {
@@ -60,7 +77,7 @@ await send('Emulation.setDeviceMetricsOverride', { width: vw, height: vh, device
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await send('Page.navigate', { url: new URL(url).origin + '/__ls' });
 await sleep(1000);
-await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(key))})`);
+await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(key))}); sessionStorage.setItem('va:room', 'open')`); // v0.5.0：このタブで店内にいた（再読み込み）ことにして自動で入る
 await send('Page.navigate', { url });
 await sleep(5000);
 
@@ -108,7 +125,7 @@ const okey = globalThis.crypto.randomUUID().replace(/-/g, '') + 'x'.repeat(12);
 await fetch(`${apiBase}/api/enter`, { method: 'POST', headers: { 'X-VA-Key': okey, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'そら', look: { color: 'green', hat: 'cap' } }) });
 const ows = new WebSocket(`${apiBase.replace(/^http/, 'ws')}/ws`);
 await new Promise((r) => ows.once('open', r));
-ows.send(JSON.stringify({ type: 'hello', key: okey }));
+ows.send(JSON.stringify({ type: 'hello', key: okey, proto: 2 }));
 await new Promise((r) => ows.once('message', r));
 const posted = await fetch(`${apiBase}/api/notes`, {
   method: 'POST',

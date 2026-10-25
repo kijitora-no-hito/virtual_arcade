@@ -21,9 +21,26 @@ const KB_LAND = 200; // 横向き
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'va-edge-'));
 const p = spawn(
   edge,
-  ['--headless=new', '--window-size=1920,1080', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
+  ['--headless=new', '--mute-audio', '--window-size=1920,1080', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
   { stdio: 'ignore' },
 );
+
+// Edge を必ず閉じる（終わり・失敗・Ctrl+C）。ヘッドレスでも音は出るので --mute-audio で起動している（v0.5.0）
+const killEdge = () => {
+  try {
+    p.kill();
+  } catch {}
+};
+process.on('exit', killEdge);
+process.on('SIGINT', () => process.exit(130));
+process.on('uncaughtException', (e) => {
+  console.error(e);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(e);
+  process.exit(1);
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let list = null;
 for (let i = 0; i < 60 && !list; i++) {
@@ -80,7 +97,7 @@ await metrics(W, H);
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await send('Page.navigate', { url: new URL(url).origin + '/__ls' });
 await sleep(1000);
-await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(key))})`);
+await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(key))}); sessionStorage.setItem('va:room', 'open')`); // v0.5.0：このタブで店内にいた（再読み込み）ことにして自動で入る
 await send('Page.navigate', { url });
 await sleep(5000);
 
@@ -210,6 +227,23 @@ await sleep(300);
 await ev(`__va.open({ kind: 'admin' })`);
 await sleep(500);
 await keyboard('管理者の合言葉の欄', '.admin-login input');
+await ev(`__va.open(null)`);
+await sleep(300);
+
+// ---------------------------------------------------------------- 予約表（v0.5.0。空いている枠を押して予約の形）・予約部屋の合言葉
+await ev(`__va.open({ kind: 'reserve' })`);
+await sleep(1200);
+await ev(`document.querySelector('.res-cell.free')?.click()`);
+await sleep(500);
+await keyboard('予約の部屋名の欄', '.res-form input');
+await keyboard('予約の合言葉の欄', '.res-form .field:last-of-type input');
+await ev(`__va.open(null)`);
+await sleep(300);
+await ev(`__va.open({ kind: 'door' })`);
+await sleep(1200);
+// 合言葉の欄は、予約部屋が開いていて、自分の予約でも管理者でもないときだけ出る
+if (await ev(`!!document.querySelector('.door-modal input')`)) await keyboard('予約部屋の合言葉の欄', '.door-modal input');
+else console.log('--  予約部屋の合言葉の欄：出ていない（予約部屋が閉まっている・自分の予約・管理者）ので見ない');
 await ev(`__va.open(null)`);
 await sleep(300);
 

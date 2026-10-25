@@ -105,7 +105,7 @@ describe('クレーンゲーム（DESIGN §8）', () => {
     await h.walk(a, near.x, near.y);
     // 中身の分かったケースを入れる（テストだけ）
     const suits = ['♠', '♡', '♦', '♧'] as const;
-    (h.srv.arcade as unknown as { machines: Map<number, unknown> }).machines.set(1, {
+    (h.srv.arcade as unknown as { rooms: { open: { machines: Map<number, unknown> } } }).rooms.open.machines.set(1, {
       id: 1,
       nextId: 5,
       rev: 1,

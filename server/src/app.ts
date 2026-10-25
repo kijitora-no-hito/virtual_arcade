@@ -16,6 +16,13 @@ import {
   validateNote,
   validatePoster,
   validateRequest,
+  validateReservation,
+  isRoomId,
+  PROTOCOL,
+  RESERVATION_AHEAD_MS,
+  RESERVATION_KEY_TOTAL_MS,
+  RESERVATION_LIMITS,
+  SLOT_MS,
   type ClientMessage,
   type MeResponse,
   type MetaResponse,
@@ -32,7 +39,7 @@ import { CLIENT_DIST } from './paths';
 import { hashKey } from './secret';
 
 declare const __VA_VERSION__: string | undefined;
-export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.4.1';
+export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.5.0';
 
 export interface AppOptions {
   dbPath: string;
@@ -46,6 +53,8 @@ export interface AppOptions {
 const HEARTBEAT_MS = 30_000;
 const HELLO_TIMEOUT_MS = 10_000;
 const SWEEP_MS = 60 * 1000;
+/** 予約の時間の移り変わり（始まり・終わる前の案内・終わり）を見る間隔 */
+const SLOT_TICK_MS = 5 * 1000;
 /** 1 本の接続から 10 秒に送れるメッセージの数（超えたら切る） */
 const WS_MSGS_PER_10S = 80;
 /** 移動の指示は 1 秒に 10 回まで（超えた分は捨てる） */
@@ -60,7 +69,7 @@ interface Conn {
 }
 
 export const createServer = (opts: AppOptions) => {
-  const cfg: Config = { ...defaultConfig(), ...opts.config };
+  const cfg: Config = { ...defaultConfig(), version: VERSION, ...opts.config };
   const now = cfg.now ?? Date.now;
   const base = cfg.basePath;
   const store = new Store(opts.dbPath);
@@ -83,6 +92,10 @@ export const createServer = (opts: AppOptions) => {
     note: new RateLimiter(cfg.rates.note),
     requestKey: new RateLimiter(cfg.rates.requestKey),
     request: new RateLimiter(cfg.rates.request),
+    reserveKey: new RateLimiter(cfg.rates.reserveKey),
+    reserve: new RateLimiter(cfg.rates.reserve),
+    passKey: new RateLimiter(cfg.rates.passKey),
+    pass: new RateLimiter(cfg.rates.pass),
   };
   const lastChat = new Map<string, number>();
   const lastEmote = new Map<string, number>();
@@ -131,6 +144,13 @@ export const createServer = (opts: AppOptions) => {
         version: VERSION,
         maxPlayers: cfg.maxPlayers,
         online: arcade.onlineCount(),
+        onlineByRoom: arcade.onlineByRoom(),
+        reservations: {
+          slotMs: SLOT_MS,
+          maxTotalMs: RESERVATION_KEY_TOTAL_MS,
+          aheadMs: RESERVATION_AHEAD_MS,
+          limits: { ...RESERVATION_LIMITS },
+        },
         cabinetTtlMs: cfg.cabinetTtlMs,
         adminEnabled: arcade.adminEnabled(),
         limits: { name: NAME_MAX, chat: CHAT_MAX, notice: NOTICE_MAX, promo: { ...PROMO_LIMITS } },
@@ -177,8 +197,76 @@ export const createServer = (opts: AppOptions) => {
 
   api.get(
     '/cabinets',
-    route((_req, res) => {
-      res.json({ cabinets: arcade.listCabinets() });
+    route((req, res) => {
+      res.json({ cabinets: arcade.listCabinets(keyOf(req)) });
+    }),
+  );
+
+  // ---- 予約部屋（v0.5.0。DESIGN §14）。一覧は誰でも（合言葉・ハッシュ・鍵は載せない）
+  api.get(
+    '/reservations',
+    route((req, res) => {
+      res.json(arcade.listReservations(keyOf(req)));
+    }),
+  );
+  api.post(
+    '/reservations',
+    route((req, res) => {
+      const k = keyOf(req);
+      if (!k) throw new ArcadeError(401, '識別用の鍵がありません。ページを開き直してください', 'no-key');
+      const { error } = validateReservation(req.body, now()); // 回数を数える前に形を確かめる
+      if (error) throw new ArcadeError(400, error.message, error.code);
+      limit(limits.reserveKey, k, '予約');
+      limit(limits.reserve, ipOf(req), '予約');
+      res.status(201).json({ reservation: arcade.createReservation(k, req.body) });
+    }),
+  );
+  api.delete(
+    '/reservations/:id',
+    route((req, res) => {
+      arcade.cancelReservation(keyOf(req), req.params.id);
+      res.json({ ok: true });
+    }),
+  );
+  // ---- 予約部屋の主催者（予約した人）の操作。その予約の時間に予約部屋の中にいるときだけ（サイトの管理者はいつでも）
+  api.post(
+    '/room/remove',
+    route((req, res) => {
+      arcade.removeFromRoom(keyOf(req), req.body?.pid);
+      res.json({ ok: true });
+    }),
+  );
+  api.post(
+    '/room/passphrase',
+    route((req, res) => {
+      arcade.changeRoomPassphrase(keyOf(req), req.body?.passphrase);
+      res.json({ ok: true });
+    }),
+  );
+  api.post(
+    '/room/end',
+    route((req, res) => {
+      arcade.endRoomEarly(keyOf(req));
+      res.json({ ok: true });
+    }),
+  );
+  /** 部屋に入る（予約部屋は合言葉。間違いだけを鍵ごと・IP ごとに数える）。店内にいればその場で移る */
+  api.post(
+    '/rooms/:room/enter',
+    route((req, res) => {
+      const k = keyOf(req);
+      const ip = ipOf(req);
+      if (req.params.room === 'reserved' && ((k && limits.passKey.blocked(k)) || limits.pass.blocked(ip)))
+        throw new ArcadeError(429, '合言葉の間違いが多すぎます。少し待ってからやり直してください', 'rate');
+      try {
+        res.json(arcade.enterRoom(k, req.params.room, req.body?.passphrase));
+      } catch (e) {
+        if (e instanceof ArcadeError && e.code === 'bad-passphrase') {
+          if (k) limits.passKey.hit(k);
+          limits.pass.hit(ip);
+        }
+        throw e;
+      }
     }),
   );
 
@@ -541,9 +629,10 @@ export const createServer = (opts: AppOptions) => {
   };
 
   arcade.setHooks({
-    broadcast: (msg) => {
+    broadcast: (msg, room) => {
       const text = JSON.stringify(msg);
-      for (const [ws, c] of conns) if (c.keyHash && byKey.get(c.keyHash) === ws && ws.readyState === WebSocket.OPEN) ws.send(text);
+      for (const [ws, c] of conns)
+        if (c.keyHash && byKey.get(c.keyHash) === ws && ws.readyState === WebSocket.OPEN && (!room || arcade.roomOf(c.keyHash) === room)) ws.send(text);
     },
     send: (k, msg) => {
       const ws = byKey.get(k);
@@ -566,15 +655,22 @@ export const createServer = (opts: AppOptions) => {
     }
   };
 
-  const hello = (ws: WebSocket, c: Conn, key: unknown) => {
+  const hello = (ws: WebSocket, c: Conn, m: Record<string, unknown>) => {
     if (!limits.hello.hit(c.ip)) {
       send(ws, { type: 'error', error: '接続が多すぎます。少し待ってから開き直してください', code: 'rate' });
       ws.close(1008);
       return;
     }
-    const k = hashKey(key);
+    // v0.5.0：部屋が加わってメッセージの形が変わった。前の版のページ（ブラウザに残った古いタブ）には再読み込みを頼む
+    // （0.4.x のクライアントは kicked の文を出して、つなぎ直さない）
+    if (typeof m.proto !== 'number' || m.proto < PROTOCOL) {
+      send(ws, { type: 'kicked', reason: '新しい版になりました。ページを再読み込みしてください（F5 / 引っぱって更新）' });
+      ws.close(1000);
+      return;
+    }
+    const k = hashKey(m.key);
     try {
-      const welcome = arcade.connect(k);
+      const welcome = arcade.connect(k, isRoomId(m.room) ? m.room : 'open');
       const old = byKey.get(k!);
       c.keyHash = k;
       byKey.set(k!, ws);
@@ -656,7 +752,7 @@ export const createServer = (opts: AppOptions) => {
       }
       const text = String(data);
       if (text === 'ping') {
-        send(ws, { type: 'pong' });
+        send(ws, { type: 'pong', serverNow: now() });
         return;
       }
       let m: (Partial<ClientMessage> & Record<string, unknown>) | null = null;
@@ -669,7 +765,7 @@ export const createServer = (opts: AppOptions) => {
       if (!c.keyHash) {
         if (m.type === 'hello') {
           clearTimeout(helloTimer);
-          hello(ws, c, m.key);
+          hello(ws, c, m);
         }
         return;
       }
@@ -708,6 +804,14 @@ export const createServer = (opts: AppOptions) => {
   sweep();
   const sweeper = setInterval(sweep, SWEEP_MS);
   sweeper.unref();
+  const slotTicker = setInterval(() => {
+    try {
+      arcade.syncSlot();
+    } catch (e) {
+      console.error('予約の時間の確認に失敗:', e instanceof Error ? e.message : String(e));
+    }
+  }, SLOT_TICK_MS);
+  slotTicker.unref();
 
   let closing = false;
   const close = async () => {
@@ -716,6 +820,7 @@ export const createServer = (opts: AppOptions) => {
     closing = true;
     clearInterval(heartbeat);
     clearInterval(sweeper);
+    clearInterval(slotTicker);
     for (const ws of conns.keys()) ws.terminate();
     wss.close();
     await new Promise<void>((r) => server.close(() => r()));

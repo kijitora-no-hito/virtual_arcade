@@ -13,9 +13,17 @@ import {
   type PosterView,
   type Point,
   type Profile,
+  type ReservationView,
+  type RoomId,
   type ServerMessage,
+  PROTOCOL,
+  estimateOffset,
 } from '@va/shared';
 import { myKey, wsUrl } from '../api';
+
+declare const __VA_CLIENT_VERSION__: string | undefined;
+/** このページ（クライアント）の版。サーバの版と違えば「新しい版があります」を出す（v0.5.0） */
+export const CLIENT_VERSION = typeof __VA_CLIENT_VERSION__ !== 'undefined' ? __VA_CLIENT_VERSION__ : '';
 
 export interface ClientPlayer extends PlayerView {
   /** 描画中の位置（なめらかに追う） */
@@ -53,6 +61,18 @@ export class ArcadeClient {
   version = 0;
   /** 要望箱の未読の件数（管理者だけに届く。DESIGN §13） */
   requestsUnread = 0;
+  /** v0.5.0：いまいる部屋（welcome で決まる）。つなぎ直すときもこの部屋を頼む */
+  room: RoomId = 'open';
+  /** 部屋が変わった回数（描画・窓を作り直す合図） */
+  roomSeq = 0;
+  /** 予約の一覧（これからの分） */
+  reservations: ReservationView[] = [];
+  /** サーバの版がこのページの版と違う（再読み込みを勧める） */
+  outdated = false;
+
+  constructor(initialRoom: RoomId = 'open') {
+    this.room = initialRoom;
+  }
   /** ノートに書かれた・消された（開いているノートの窓が受け取る。DESIGN §12） */
   private noteListeners = new Set<(m: NoteEvent) => void>();
 
@@ -62,6 +82,8 @@ export class ArcadeClient {
   };
 
   private offset = 0;
+  /** 最後に ping を送った時刻（pong の serverNow と合わせて時計の差を出す） */
+  private pingAt = 0;
   private ws: WebSocket | null = null;
   private closed = false;
   private retry = 0;
@@ -97,8 +119,15 @@ export class ArcadeClient {
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
-      ws.send(JSON.stringify({ type: 'hello', key: myKey() }));
-      this.ping = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('ping'), 25000);
+      ws.send(JSON.stringify({ type: 'hello', key: myKey(), proto: PROTOCOL, v: CLIENT_VERSION, room: this.room }));
+      const ping = () => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        this.pingAt = Date.now();
+        ws.send('ping');
+      };
+      this.ping = window.setInterval(ping, 25000);
+      // 予約部屋の残り時間のため、つないだ直後にも 1 回合わせる（welcome の serverNow は片道の遅れを含む）
+      window.setTimeout(ping, 1500);
     };
     ws.onmessage = (ev) => {
       let msg: ServerMessage;
@@ -150,7 +179,14 @@ export class ArcadeClient {
         this.offset = msg.serverNow - Date.now();
         this.you = msg.you;
         this.maxPlayers = msg.maxPlayers;
-        const old = this.players;
+        const room = msg.room ?? 'open';
+        if (room !== this.room || this.roomSeq === 0) this.roomSeq++;
+        // 部屋が変わったら前の部屋の人の吹き出し・位置は持ち越さない
+        const old = room === this.room ? this.players : new Map<string, ClientPlayer>();
+        this.room = room;
+        this.reservations = msg.reservations ?? [];
+        this.outdated = !!CLIENT_VERSION && !!msg.version && msg.version !== CLIENT_VERSION;
+        if (msg.reason) this.toast = { text: msg.reason, at: performance.now() };
         this.players = new Map(msg.players.map((p) => [p.pid, this.toPlayer(p, old.get(p.pid))]));
         this.cabinets = new Map(msg.cabinets.map((c) => [c.id, c]));
         this.chat = msg.chat;
@@ -210,6 +246,9 @@ export class ArcadeClient {
       case 'posters':
         this.posters = msg.posters;
         break;
+      case 'reservations':
+        this.reservations = msg.reservations;
+        break;
       case 'note':
       case 'note-delete':
         for (const l of this.noteListeners) l(msg);
@@ -243,6 +282,7 @@ export class ArcadeClient {
         break;
       }
       case 'pong':
+        if (msg.serverNow && this.pingAt) this.offset = estimateOffset(msg.serverNow, this.pingAt, Date.now());
         return;
     }
     this.changed();

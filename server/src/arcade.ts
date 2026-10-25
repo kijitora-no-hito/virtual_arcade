@@ -1,7 +1,28 @@
 // 店の状態（店内にいる人・筐体・チャット・お知らせ）と操作。HTTP・WebSocket からは app.ts が呼ぶ。
 // 人の位置はサーバが持つ（経路と出発時刻。歩いている途中の位置は positionAt で同じ式を使って求める）。
+// v0.5.0：部屋が 2 つ（オープン部屋・予約部屋。DESIGN §14）。人・チャット・お知らせ・筐体・クレーンゲームは部屋ごと、
+// ノート・要望・ポスター・バッジは店全体で 1 つ。
 
 import {
+  activeReservation,
+  checkReservationPass,
+  closedRoomText,
+  doorFront,
+  formatReservationRange,
+  isRoomId,
+  jstTime,
+  overlaps,
+  RESERVATION_KEEP_MS,
+  RESERVATION_KEY_TOTAL_MS,
+  RESERVATION_MAX_ROWS,
+  RESERVATION_WARN_MS,
+  reservedTotalMs,
+  ROOM_IDS,
+  validateReservation,
+  type ReservationsResponse,
+  type ReservationView,
+  type RoomEnterResponse,
+  type RoomId,
   NOTE_FETCH,
   validateNote,
   validateRequest,
@@ -62,9 +83,9 @@ import {
   type WelcomeMessage,
 } from '@va/shared';
 import type { Config } from './config';
-import type { PosterRow, Store, UserRow } from './db';
-import { checkPassphrase, newPid } from './secret';
-
+import type { PosterRow, ReservationRow, Store, UserRow } from './db';
+import { dbRoomData, MemRoomData, type RoomData } from './roomData';
+import { checkPassphrase, hashPassphrase, newPid } from './secret';
 
 export class ArcadeError extends Error {
   constructor(
@@ -84,11 +105,24 @@ interface Online {
   path: Point[];
   startedAt: number;
   watching: number | null;
+  /** v0.5.0：いる部屋 */
+  room: RoomId;
+}
+
+/** 部屋ごとの状態（v0.5.0。DESIGN §14）：チャット・お知らせ・筐体・クレーンゲームのケースと待ち時間 */
+interface RoomState {
+  id: RoomId;
+  data: RoomData;
+  cabinets: CabinetRecord[];
+  /** クレーンゲームのケース（台ごと。メモリだけ） */
+  machines: Map<number, CraneMachine>;
+  /** クレーンゲームの次に遊べる時刻（鍵ごと） */
+  craneNext: Map<string, number>;
 }
 
 export interface Hooks {
-  /** 店内の全員へ */
-  broadcast: (msg: ServerMessage) => void;
+  /** room の部屋にいる全員へ（room を省くと全部の部屋の全員へ） */
+  broadcast: (msg: ServerMessage, room?: RoomId) => void;
   /** 1 人へ（その鍵の接続） */
   send: (keyHash: string, msg: ServerMessage) => void;
   /** その鍵の接続を切る（msg を送ってから） */
@@ -106,19 +140,31 @@ interface BadgeHold {
   offSince: number | null;
 }
 
+/** 予約の時間が終わって（取り消されて）オープン部屋へ戻したときの文 */
+export const ROOM_ENDED_TEXT = '予約の時間が終わったので、オープン部屋に戻りました';
+export const ROOM_CANCELLED_TEXT = '予約が取り消されたので、オープン部屋に戻りました';
+export const ROOM_CLOSED_BY_HOST_TEXT = '主催者が予約部屋を閉じたので、オープン部屋に戻りました';
+export const ROOM_REMOVED_TEXT = '主催者により、オープン部屋に戻されました（この予約の間は予約部屋に入れません）';
+
 export class Arcade {
   private online = new Map<string, Online>();
-  private cabinets: CabinetRecord[];
+  private rooms: Record<RoomId, RoomState>;
   private hooks: Hooks = { broadcast: () => {}, send: () => {}, drop: () => {} };
   private now: () => number;
   private rng: () => number;
   private badges = new Map<string, BadgeHold>();
-  /** クレーンゲームの次に遊べる時刻（鍵ごと） */
-  private craneNext = new Map<string, number>();
-  /** クレーンゲームのケース（台ごと。メモリだけ） */
-  private machines = new Map<number, CraneMachine>();
   /** ノートに書いたことをチャットに流した時刻（鍵ごと。控えめにするため） */
   private noteAnnounced = new Map<string, number>();
+  /** v0.5.0：まだ終わっていない予約（DB の写し。開始の順） */
+  private reservations: ReservationRow[] = [];
+  /** 予約部屋がいま開いている予約の id と、終わる前の案内を出したしきい値 */
+  private slot: { id: number | null; warned: Set<number> } = { id: null, warned: new Set() };
+  /** 合言葉を入れて予約部屋に入れるようになった鍵 → その予約の id（予約の時間が終わると消える。メモリだけ） */
+  private grants = new Map<string, number>();
+  /** 次に予約部屋を閉じるときの理由（取り消したとき） */
+  private closeReason: string | null = null;
+  /** 主催者に予約部屋から出された鍵（この予約の間は入れない。予約が終わると消える） */
+  private roomBans = new Set<string>();
 
   constructor(
     private store: Store,
@@ -126,11 +172,34 @@ export class Arcade {
   ) {
     this.now = cfg.now ?? Date.now;
     this.rng = cfg.rng ?? Math.random;
-    const saved = new Map(store.loadCabinets().map((c) => [c.id, c]));
-    this.cabinets = FLOOR.cabinets.map((s) => {
+    this.rooms = {
+      open: this.newRoom('open', dbRoomData(store)),
+      reserved: this.newRoom('reserved', new MemRoomData()),
+    };
+    this.reservations = store.listReservations(this.now());
+    this.slot = { id: activeReservation(this.reservations, this.now())?.id ?? null, warned: new Set() };
+  }
+
+  private newRoom(id: RoomId, data: RoomData): RoomState {
+    const saved = new Map(data.loadCabinets().map((c) => [c.id, c]));
+    const cabinets = FLOOR.cabinets.map((s) => {
       const c = saved.get(s.id);
       return c ? { ...emptyCabinet(s.id), ...c, id: s.id } : emptyCabinet(s.id);
     });
+    return { id, data, cabinets, machines: new Map(), craneNext: new Map() };
+  }
+
+  private room(id: RoomId): RoomState {
+    return this.rooms[id];
+  }
+
+  /** その鍵の人がいる部屋（店内にいなければオープン部屋） */
+  roomOf(keyHash: string | null): RoomId {
+    return (keyHash && this.online.get(keyHash)?.room) || 'open';
+  }
+
+  private inRoom(room: RoomId): Online[] {
+    return [...this.online.values()].filter((p) => p.room === room);
   }
 
   setHooks(h: Hooks): void {
@@ -150,7 +219,28 @@ export class Arcade {
       admin: this.isAdmin(p.keyHash),
       badges: this.badgesOf(p.keyHash),
       pinned: this.badges.get(p.keyHash)?.pinned ?? null,
+      ...(p.room === 'reserved' && this.isRoomHost(p.keyHash) ? { host: true } : {}),
     };
+  }
+
+  /** 予約部屋の主催者か（いま開いている予約を予約した鍵。予約の時間の間だけ） */
+  isRoomHost(keyHash: string | null): boolean {
+    if (!keyHash || this.slot.id === null) return false;
+    const r = this.reservations.find((x) => x.id === this.slot.id);
+    return !!r && r.ownerKey === keyHash && r.startAt <= this.now() && this.now() < r.endAt;
+  }
+
+  /**
+   * 部屋の管理の操作（発言・お知らせの削除、お知らせ、筐体を空ける、人を出す…）ができるか。
+   * サイトの管理者はどの部屋でも。予約部屋の主催者は、その予約の時間に予約部屋の中にいるときだけ（オープン部屋・ほかの予約では何もできない）
+   */
+  private requireRoomPower(keyHash: string | null): { k: string; room: RoomId; admin: boolean } {
+    const k = this.requireKey(keyHash);
+    this.syncSlot();
+    const room = this.roomOf(k);
+    if (this.isAdmin(k)) return { k, room, admin: true };
+    if (room === 'reserved' && this.isRoomHost(k)) return { k, room, admin: false };
+    throw new ArcadeError(403, '管理者（予約部屋ではその予約の主催者）だけができる操作です', 'not-admin');
   }
 
   private hold(keyHash: string): BadgeHold {
@@ -220,8 +310,13 @@ export class Arcade {
     return !!keyHash && this.online.has(keyHash);
   }
 
-  onlineCount(): number {
-    return this.online.size;
+  /** 店内にいる人数（room を付けるとその部屋だけ） */
+  onlineCount(room?: RoomId): number {
+    return room ? this.inRoom(room).length : this.online.size;
+  }
+
+  onlineByRoom(): Record<RoomId, number> {
+    return { open: this.inRoom('open').length, reserved: this.inRoom('reserved').length };
   }
 
   private requireKey(keyHash: string | null): string {
@@ -253,7 +348,7 @@ export class Arcade {
     const look: Look = { color: rawLook.color, hat: rawLook.hat };
     const now = this.now();
     const old = this.store.getUser(k);
-    if (!old && !this.online.has(k) && this.online.size >= this.cfg.maxPlayers)
+    if (!old && !this.online.has(k) && this.inRoom('open').length >= this.cfg.maxPlayers)
       throw new ArcadeError(503, `満員です（${this.cfg.maxPlayers} 人まで）。少し待ってから入ってください`, 'full');
     const u: UserRow = old
       ? { ...old, name, look, last_seen: now }
@@ -263,72 +358,134 @@ export class Arcade {
     if (p) {
       p.name = name;
       p.look = look;
-      this.hooks.broadcast({ type: 'player', player: this.playerView(p) });
+      this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
       this.hooks.send(k, { type: 'you', you: this.profileOf(u) });
     }
     return this.profileOf(u);
   }
 
   /**
-   * WebSocket がつながった。店内に入れて、最初の状態を返す（ほかの人には join）。
-   * すでに店内にいる（別のタブ・再接続）なら、位置はそのまま。
+   * WebSocket がつながった。店内に入れて、最初の状態を返す（同じ部屋のほかの人には join）。
+   * wantRoom = 'reserved' なら、予約部屋に入れる人（予約した人・管理者・この予約の合言葉を入れた人）は予約部屋へ。
+   * 入れなければオープン部屋に入れて、reason に理由を書く。すでに店内にいる（別のタブ・再接続）なら、位置はそのまま。
    */
-  connect(keyHash: string | null): WelcomeMessage {
+  connect(keyHash: string | null, wantRoom: unknown = 'open'): WelcomeMessage {
     const k = this.requireKey(keyHash);
     const u = this.store.getUser(k);
     if (!u) throw new ArcadeError(409, '先に名前と見た目を決めてください', 'need-enter');
     this.requireBanFree(k);
+    this.syncSlot();
     const now = this.now();
+    const want: RoomId = isRoomId(wantRoom) ? wantRoom : 'open';
+    let reason: string | undefined;
+    let room: RoomId = 'open';
+    if (want === 'reserved') {
+      const why = this.reservedRefusal(k);
+      if (why) reason = `${why}（オープン部屋に入りました）`;
+      else room = 'reserved';
+    }
+    const admin = this.isAdmin(k);
     let p = this.online.get(k);
     if (!p) {
-      if (this.online.size >= this.cfg.maxPlayers && !this.isAdmin(k))
+      if (room === 'reserved' && this.inRoom('reserved').length >= this.cfg.maxPlayers && !admin) {
+        reason = '予約部屋は満員です（オープン部屋に入りました）';
+        room = 'open';
+      }
+      if (this.inRoom(room).length >= this.cfg.maxPlayers && !admin)
         throw new ArcadeError(503, `満員です（${this.cfg.maxPlayers} 人まで）。少し待ってから入ってください`, 'full');
       const start =
-        u.x !== null && u.y !== null && isPassable(FLOOR, u.x, u.y)
-          ? { x: u.x, y: u.y }
-          : FLOOR.spawn[Math.floor(Math.random() * FLOOR.spawn.length)];
-      p = { keyHash: k, pid: u.pid, name: u.name, look: u.look, path: [{ ...start }], startedAt: now, watching: null };
+        room === 'reserved'
+          ? doorFront()
+          : u.x !== null && u.y !== null && isPassable(FLOOR, u.x, u.y)
+            ? { x: u.x, y: u.y }
+            : FLOOR.spawn[Math.floor(Math.random() * FLOOR.spawn.length)];
+      p = { keyHash: k, pid: u.pid, name: u.name, look: u.look, path: [{ ...start }], startedAt: now, watching: null, room };
       this.online.set(k, p);
       const hold = this.badges.get(k);
       if (hold) hold.offSince = null;
-      this.hooks.broadcast({ type: 'join', player: this.playerView(p) });
+      this.hooks.broadcast({ type: 'join', player: this.playerView(p) }, p.room);
+    } else if (room !== p.room && (room === 'open' || this.inRoom('reserved').length < this.cfg.maxPlayers || admin)) {
+      // 別のタブで店内にいる人が、別の部屋を選んで入り直した（このあと古い接続は切れる。welcome はこの戻り値で送る）
+      this.moveTo(p, room, false);
     }
     this.store.upsertUser({ ...u, last_seen: now });
     this.expire();
     // 管理者には要望の未読の件数（welcome の後に届くよう、次の順番で）
-    if (this.isAdmin(k)) queueMicrotask(() => this.hooks.send(k, { type: 'requests', unread: this.store.countUnreadRequests() }));
-    return {
+    if (admin) queueMicrotask(() => this.hooks.send(k, { type: 'requests', unread: this.store.countUnreadRequests() }));
+    return this.welcome(p, reason);
+  }
+
+  /** その人がいる部屋の最初の状態 */
+  private welcome(p: Online, reason?: string): WelcomeMessage {
+    const r = this.room(p.room);
+    const u = this.store.getUser(p.keyHash);
+    const msg: WelcomeMessage = {
       type: 'welcome',
-      you: this.profileOf(u),
-      serverNow: now,
-      players: [...this.online.values()].map((x) => this.playerView(x)),
-      cabinets: this.cabinets.map((c) => this.cabinetView(c)),
-      chat: this.store.recentChat(),
-      notices: this.store.recentNotices(),
+      room: p.room,
+      version: this.cfg.version ?? '',
+      reservations: this.reservationViews(),
+      you: u ? this.profileOf(u) : { pid: p.pid, name: p.name, look: p.look, admin: false, badges: this.badgesOf(p.keyHash) },
+      serverNow: this.now(),
+      players: this.inRoom(p.room).map((x) => this.playerView(x)),
+      cabinets: r.cabinets.map((c) => this.cabinetView(c)),
+      chat: r.data.recentChat(),
+      notices: r.data.recentNotices(),
       posters: this.listPosters(),
       maxPlayers: this.cfg.maxPlayers,
     };
+    if (reason) msg.reason = reason;
+    return msg;
   }
 
-  /** 接続が切れた（店を出た）。位置を覚えておく */
+  /**
+   * 部屋を移す（扉・メニュー・予約の時間の終わり）。名前・見た目・バッジはそのまま。ピン止めの吹き出しは部屋ごとなので外す。
+   * 移った先では扉の前のマスに立つ。notify = その人に新しい部屋の welcome を送る
+   */
+  private moveTo(p: Online, to: RoomId, notify: boolean, reason?: string): void {
+    if (p.room === to) return;
+    const from = p.room;
+    const now = this.now();
+    if (from === 'open') {
+      // オープン部屋の位置を覚えておく（次にオープン部屋へ入り直したときに戻る所）
+      const at = currentTile(p.path, p.startedAt, now);
+      const u = this.store.getUser(p.keyHash);
+      if (u) this.store.upsertUser({ ...u, x: at.x, y: at.y, last_seen: now });
+    }
+    this.hooks.broadcast({ type: 'leave', pid: p.pid }, from);
+    const h = this.badges.get(p.keyHash);
+    if (h?.pinned) {
+      h.pinned = null;
+      this.tidyHold(p.keyHash);
+    }
+    p.room = to;
+    p.path = [doorFront()];
+    p.startedAt = now;
+    p.watching = null;
+    this.hooks.broadcast({ type: 'join', player: this.playerView(p) }, to);
+    if (notify) this.hooks.send(p.keyHash, this.welcome(p, reason));
+  }
+
+  /** 接続が切れた（店を出た）。位置を覚えておく（オープン部屋にいたときだけ） */
   disconnect(keyHash: string): void {
     const p = this.online.get(keyHash);
     if (!p) return;
     this.online.delete(keyHash);
     const now = this.now();
-    const at = currentTile(p.path, p.startedAt, now);
     const u = this.store.getUser(keyHash);
-    if (u) this.store.upsertUser({ ...u, x: at.x, y: at.y, last_seen: now });
+    if (u) {
+      const at = p.room === 'open' ? currentTile(p.path, p.startedAt, now) : null;
+      this.store.upsertUser({ ...u, ...(at ? { x: at.x, y: at.y } : {}), last_seen: now });
+    }
     const hold = this.badges.get(keyHash);
     if (hold) hold.offSince = now;
-    this.hooks.broadcast({ type: 'leave', pid: p.pid });
+    this.hooks.broadcast({ type: 'leave', pid: p.pid }, p.room);
   }
 
   /** 退店（バッジを消して、接続を切る。名前と見た目・最後の位置は残る） */
   leave(keyHash: string | null): void {
     const k = this.requireKey(keyHash);
     this.badges.delete(k);
-    this.craneNext.delete(k);
+    for (const r of ROOM_IDS) this.room(r).craneNext.delete(k);
     this.hooks.drop(k, { type: 'bye' });
     this.disconnect(k);
   }
@@ -338,7 +495,7 @@ export class Arcade {
     const now = this.now();
     for (const [k, h] of this.badges)
       if (h.offSince !== null && now - h.offSince >= this.cfg.badgeKeepMs && !this.online.has(k)) this.badges.delete(k);
-    for (const [k, t] of this.craneNext) if (t < now - 60_000) this.craneNext.delete(k);
+    for (const r of ROOM_IDS) for (const [k, t] of this.room(r).craneNext) if (t < now - 60_000) this.room(r).craneNext.delete(k);
     for (const [k, t] of this.noteAnnounced) if (t < now - NOTE_ANNOUNCE_MS) this.noteAnnounced.delete(k);
   }
 
@@ -360,13 +517,13 @@ export class Arcade {
     p.path = path;
     p.startedAt = this.now();
     p.watching = null;
-    this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: null });
+    this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: null }, p.room);
   }
 
   emote(keyHash: string | null, emoji: unknown): Emote {
     const p = this.requireOnline(keyHash);
     if (!isEmote(emoji)) throw new ArcadeError(400, 'そのエモーションはありません', 'bad-input');
-    this.hooks.broadcast({ type: 'emote', pid: p.pid, emoji, at: this.now() });
+    this.hooks.broadcast({ type: 'emote', pid: p.pid, emoji, at: this.now() }, p.room);
     return emoji;
   }
 
@@ -380,28 +537,28 @@ export class Arcade {
       const id = Number(cabinet);
       const spot = Number.isInteger(id) ? cabinetSpot(id) : undefined;
       if (!spot) throw new ArcadeError(404, 'その筐体はありません', 'not-found');
-      const c = this.cabinetRecord(id);
+      const c = this.cabinetRecord(p.room, id);
       if (!c.videoId) throw new ArcadeError(409, 'この筐体には配信が設定されていません', 'no-stream');
       p.path = [frontTile(spot)];
       p.startedAt = this.now();
       p.watching = id;
     }
-    this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: p.watching });
+    this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: p.watching }, p.room);
   }
 
-  // ---------------------------------------------------------------- チャット
+  // ---------------------------------------------------------------- チャット（部屋ごと）
 
   say(keyHash: string | null, raw: unknown): ChatMessage {
     const p = this.requireOnline(keyHash);
     const text = checkChat(raw);
-    return this.addChat('user', p.pid, p.name, text, this.badgesOf(p.keyHash));
+    return this.addChat(p.room, 'user', p.pid, p.name, text, this.badgesOf(p.keyHash), p.room === 'reserved' && this.isRoomHost(p.keyHash));
   }
 
   /** 自分の発言を 1 つだけピン止めする（頭上の吹き出しが出しっぱなしになる）。pinned = false で外す */
   pinChat(keyHash: string | null, rawId: unknown, pinned: unknown): PinnedChat | null {
     const p = this.requireOnline(keyHash);
     const id = Number(rawId);
-    const row = Number.isInteger(id) ? this.store.getChatRow(id) : undefined;
+    const row = Number.isInteger(id) ? this.room(p.room).data.getChatRow(id) : undefined;
     if (!row) throw new ArcadeError(404, 'その発言はありません', 'not-found');
     if (row.kind !== 'user' || row.pid !== p.pid) throw new ArcadeError(403, 'ピン止めできるのは自分の発言だけです', 'not-owner');
     const h = this.hold(p.keyHash);
@@ -410,7 +567,7 @@ export class Arcade {
     } else h.pinned = { id, text: row.text };
     const now = h.pinned;
     this.tidyHold(p.keyHash);
-    this.hooks.broadcast({ type: 'player', player: this.playerView(p) });
+    this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
     return now;
   }
 
@@ -421,60 +578,66 @@ export class Arcade {
         h.pinned = null;
         this.tidyHold(k);
         const p = this.online.get(k);
-        if (p) this.hooks.broadcast({ type: 'player', player: this.playerView(p) });
+        if (p) this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
       }
   }
 
-  private addChat(kind: ChatKind, pid: string | null, name: string | null, text: string, badges = ''): ChatMessage {
+  private addChat(room: RoomId, kind: ChatKind, pid: string | null, name: string | null, text: string, badges = '', host = false): ChatMessage {
     const at = this.now();
-    const id = this.store.addChat({ at, kind, pid, name, text, badges });
+    const id = this.room(room).data.addChat({ at, kind, pid, name, text, badges, ...(host ? { host } : {}) });
     const message: ChatMessage = { id, at, kind, pid, name, text };
     if (badges) message.badges = badges;
-    this.hooks.broadcast({ type: 'chat', message });
+    if (host) message.host = true;
+    this.hooks.broadcast({ type: 'chat', message }, room);
     return message;
   }
 
-  recentChat(): ChatMessage[] {
-    return this.store.recentChat();
+  recentChat(room: RoomId = 'open'): ChatMessage[] {
+    return this.room(room).data.recentChat();
   }
 
-  // ---------------------------------------------------------------- 筐体
+  // ---------------------------------------------------------------- 筐体（部屋ごと）
 
-  private cabinetRecord(id: number): CabinetRecord {
-    const c = this.cabinets.find((x) => x.id === id);
+  private cabinetRecord(room: RoomId, id: number): CabinetRecord {
+    const c = this.room(room).cabinets.find((x) => x.id === id);
     if (!c) throw new ArcadeError(404, 'その筐体はありません', 'not-found');
     return c;
   }
 
-  private putCabinet(c: CabinetRecord): CabinetView {
-    this.cabinets = this.cabinets.map((x) => (x.id === c.id ? c : x));
-    this.store.saveCabinet(c);
+  private putCabinet(room: RoomId, c: CabinetRecord): CabinetView {
+    const r = this.room(room);
+    r.cabinets = r.cabinets.map((x) => (x.id === c.id ? c : x));
+    r.data.saveCabinet(c);
     const v = this.cabinetView(c);
-    this.hooks.broadcast({ type: 'cabinet', cabinet: v });
+    this.hooks.broadcast({ type: 'cabinet', cabinet: v }, room);
     // 配信が外れた筐体を視聴していた人は立たせる
     if (!c.videoId)
-      for (const p of this.online.values())
+      for (const p of this.inRoom(room))
         if (p.watching === c.id) {
           p.watching = null;
-          this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: null });
+          this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: null }, room);
         }
     return v;
   }
 
-  /** 時間切れの筐体を空きにする（定期的に・操作の前に呼ぶ） */
+  /** 時間切れの筐体を空きにする（定期的に・操作の前に呼ぶ。どの部屋も） */
   expire(): number[] {
-    const { cabinets, expired } = expireCabinets(this.cabinets, this.now(), this.cfg.cabinetTtlMs);
-    if (!expired.length) return expired;
-    for (const id of expired) this.putCabinet(cabinets.find((c) => c.id === id)!);
-    return expired;
+    const all: number[] = [];
+    for (const room of ROOM_IDS) {
+      const { cabinets, expired } = expireCabinets(this.room(room).cabinets, this.now(), this.cfg.cabinetTtlMs);
+      for (const id of expired) this.putCabinet(room, cabinets.find((c) => c.id === id)!);
+      all.push(...expired);
+    }
+    return all;
   }
 
-  listCabinets(): CabinetView[] {
+  /** その鍵の人がいる部屋の筐体（鍵なし・店内にいなければオープン部屋） */
+  listCabinets(keyHash: string | null = null): CabinetView[] {
     this.expire();
-    return this.cabinets.map((c) => this.cabinetView(c));
+    return this.room(this.roomOf(keyHash)).cabinets.map((c) => this.cabinetView(c));
   }
 
-  /** 空いている筐体を使う（持ち主になる）。近く（2 マス以内）にいること。1 人 1 台 */
+  /** 空いている筐体を使う（持ち主になる）。近く（2 マス以内）にいること。1 人 1 台（部屋ごと） */
   claim(keyHash: string | null, rawId: unknown): CabinetView {
     const p = this.requireOnline(keyHash);
     this.expire();
@@ -482,27 +645,28 @@ export class Arcade {
     const spot = Number.isInteger(id) ? cabinetSpot(id) : undefined;
     if (!spot) throw new ArcadeError(404, 'その筐体はありません', 'not-found');
     if (cabinetDistance(this.tileOf(p), spot) > 2) throw new ArcadeError(409, '筐体の近くまで行ってから使ってください', 'too-far');
-    const err = claimError(this.cabinets, id, p.keyHash, this.now(), this.cfg.cabinetTtlMs);
+    const err = claimError(this.room(p.room).cabinets, id, p.keyHash, this.now(), this.cfg.cabinetTtlMs);
     if (err === 'taken') throw new ArcadeError(409, 'この筐体はほかの人が使っています', 'taken');
     if (err === 'already-own')
       throw new ArcadeError(409, 'ほかの筐体を使っています（同時に使えるのは 1 台です。先にそちらを空けてください）', 'already-own');
     if (err) throw new ArcadeError(404, 'その筐体はありません', 'not-found');
-    const c = claimCabinet(this.cabinetRecord(id), { id: p.keyHash, name: p.name, pid: p.pid }, this.now(), this.cfg.cabinetTtlMs);
-    return this.putCabinet(c);
+    const c = claimCabinet(this.cabinetRecord(p.room, id), { id: p.keyHash, name: p.name, pid: p.pid }, this.now(), this.cfg.cabinetTtlMs);
+    return this.putCabinet(p.room, c);
   }
 
-  /** 設定（配信の URL・宣伝）。持ち主か管理者 */
+  /** 設定（配信の URL・宣伝）。持ち主か管理者（いる部屋の筐体） */
   updateCabinet(keyHash: string | null, rawId: unknown, input: unknown): CabinetView {
     const k = this.requireKey(keyHash);
     this.expire();
     const id = Number(rawId);
-    const c = this.cabinetRecord(Number.isInteger(id) ? id : -1);
+    const room = this.roomOf(k);
+    const c = this.cabinetRecord(room, Number.isInteger(id) ? id : -1);
     const admin = this.isAdmin(k);
     if (!admin && c.ownerId !== k) throw new ArcadeError(403, 'この筐体を設定できるのは持ち主か管理者だけです', 'not-owner');
     if (!admin) this.requireBanFree(k);
     const { value, error } = validateCabinetInput(input);
     if (!value) throw new ArcadeError(400, error!.message, error!.code);
-    return this.putCabinet(applyCabinetInput(c, value, this.now()));
+    return this.putCabinet(room, applyCabinetInput(c, value, this.now()));
   }
 
   /** 空ける（持ち主か管理者） */
@@ -510,10 +674,12 @@ export class Arcade {
     const k = this.requireKey(keyHash);
     this.expire();
     const id = Number(rawId);
-    const c = this.cabinetRecord(Number.isInteger(id) ? id : -1);
-    const admin = this.isAdmin(k);
-    if (!admin && c.ownerId !== k) throw new ArcadeError(403, 'この筐体を空けられるのは持ち主か管理者だけです', 'not-owner');
-    return this.putCabinet(releaseCabinet(c));
+    const room = this.roomOf(k);
+    const c = this.cabinetRecord(room, Number.isInteger(id) ? id : -1);
+    this.syncSlot();
+    const admin = this.isAdmin(k) || (room === 'reserved' && this.isRoomHost(k));
+    if (!admin && c.ownerId !== k) throw new ArcadeError(403, 'この筐体を空けられるのは持ち主か管理者（予約部屋では主催者）だけです', 'not-owner');
+    return this.putCabinet(room, releaseCabinet(c));
   }
 
   // ---------------------------------------------------------------- 管理者
@@ -549,7 +715,7 @@ export class Arcade {
 
   private refreshPlayer(k: string): void {
     const p = this.online.get(k);
-    if (p) this.hooks.broadcast({ type: 'player', player: this.playerView(p) });
+    if (p) this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
     const u = this.store.getUser(k);
     if (u) this.hooks.send(k, { type: 'you', you: this.profileOf(u) });
   }
@@ -560,48 +726,51 @@ export class Arcade {
     return k;
   }
 
-  /** お知らせ（壁の大画面とチャットに流す） */
+  /** お知らせ（壁の大画面とチャットに流す）。管理者がいる部屋に出す */
   postNotice(keyHash: string | null, raw: unknown): Notice {
-    this.requireAdmin(keyHash);
+    const { room } = this.requireRoomPower(keyHash);
     const text = typeof raw === 'string' ? tidy(raw) : '';
     if (!text) throw new ArcadeError(400, 'お知らせを入れてください', 'bad-input');
     if (charLength(text) > NOTICE_MAX) throw new ArcadeError(400, `お知らせは ${NOTICE_MAX} 文字までです`, 'too-long');
+    const data = this.room(room).data;
     const at = this.now();
-    const id = this.store.addNotice(at, text);
-    this.hooks.broadcast({ type: 'notices', notices: this.store.recentNotices() });
-    this.addChat('notice', null, 'お知らせ', text);
+    const id = data.addNotice(at, text);
+    this.hooks.broadcast({ type: 'notices', notices: data.recentNotices() }, room);
+    this.addChat(room, 'notice', null, 'お知らせ', text);
     return { id, at, text };
   }
 
   deleteNotice(keyHash: string | null, rawId: unknown): void {
-    this.requireAdmin(keyHash);
+    const { room } = this.requireRoomPower(keyHash);
+    const data = this.room(room).data;
     const id = Number(rawId);
-    const notice = Number.isInteger(id) ? this.store.getNotice(id) : undefined;
-    if (!notice || !this.store.deleteNotice(id)) throw new ArcadeError(404, 'そのお知らせはありません', 'not-found');
-    this.hooks.broadcast({ type: 'notices', notices: this.store.recentNotices() });
-    // チャット欄に流れた同じお知らせも消す（全員の画面から）
-    for (const chatId of this.store.noticeChatIds(notice)) {
-      if (this.store.deleteChat(chatId)) this.hooks.broadcast({ type: 'chat-delete', id: chatId });
+    const notice = Number.isInteger(id) ? data.getNotice(id) : undefined;
+    if (!notice || !data.deleteNotice(id)) throw new ArcadeError(404, 'そのお知らせはありません', 'not-found');
+    this.hooks.broadcast({ type: 'notices', notices: data.recentNotices() }, room);
+    // チャット欄に流れた同じお知らせも消す（その部屋の全員の画面から）
+    for (const chatId of data.noticeChatIds(notice)) {
+      if (data.deleteChat(chatId)) this.hooks.broadcast({ type: 'chat-delete', id: chatId }, room);
     }
   }
 
-  notices(): Notice[] {
-    return this.store.recentNotices();
+  notices(room: RoomId = 'open'): Notice[] {
+    return this.room(room).data.recentNotices();
   }
 
-  /** チャットの発言を消す（全員の画面から消える） */
+  /** チャットの発言を消す（管理者がいる部屋の全員の画面から消える） */
   deleteChat(keyHash: string | null, rawId: unknown): void {
-    this.requireAdmin(keyHash);
+    const { room } = this.requireRoomPower(keyHash);
+    const data = this.room(room).data;
     const id = Number(rawId);
-    const row = Number.isInteger(id) ? this.store.getChatKind(id) : undefined;
-    if (!row || !this.store.deleteChat(id)) throw new ArcadeError(404, 'その発言はありません', 'not-found');
-    this.hooks.broadcast({ type: 'chat-delete', id });
+    const row = Number.isInteger(id) ? data.getChatKind(id) : undefined;
+    if (!row || !data.deleteChat(id)) throw new ArcadeError(404, 'その発言はありません', 'not-found');
+    this.hooks.broadcast({ type: 'chat-delete', id }, room);
     this.unpinDeleted(id);
     // お知らせの行を消したら、元のお知らせ（壁の大画面に流れる分）も消す
     if (row.kind === 'notice') {
       let removed = false;
-      for (const nid of this.store.noticeIdsForChat(row)) removed = this.store.deleteNotice(nid) || removed;
-      if (removed) this.hooks.broadcast({ type: 'notices', notices: this.store.recentNotices() });
+      for (const nid of data.noticeIdsForChat(row)) removed = data.deleteNotice(nid) || removed;
+      if (removed) this.hooks.broadcast({ type: 'notices', notices: data.recentNotices() }, room);
     }
   }
 
@@ -620,14 +789,16 @@ export class Arcade {
     // 管理者だった人なら外す
     if (target.admin_until > 0) this.store.upsertUser({ ...target, admin_until: 0 });
     const reason = until ? `管理者により退室になりました（${new Date(until).toLocaleString('ja-JP')} まで入室できません）` : '管理者により退室になりました';
+    const room = this.roomOf(target.key_hash);
     this.hooks.drop(target.key_hash, { type: 'kicked', reason, ...(until ? { until } : {}) });
     this.disconnect(target.key_hash);
     this.badges.delete(target.key_hash);
-    this.addChat('system', null, null, `${target.name} さんが退室になりました`);
+    this.grants.delete(target.key_hash);
+    this.addChat(room, 'system', null, null, `${target.name} さんが退室になりました`);
     return { until };
   }
 
-  /** 古い記録の掃除（入室の停止の期限切れ・長く来ていない人） */
+  /** 古い記録の掃除（入室の停止の期限切れ・長く来ていない人・古い予約の行） */
   sweep(): void {
     const now = this.now();
     this.store.deleteExpiredBans(now);
@@ -635,15 +806,250 @@ export class Arcade {
     this.expire();
     this.expireBadges();
     this.expirePosters();
+    this.store.pruneReservations(now, RESERVATION_KEEP_MS, RESERVATION_MAX_ROWS);
+    this.syncSlot();
   }
 
-  // ---------------------------------------------------------------- クレーンゲーム（DESIGN §8）
+  // ---------------------------------------------------------------- 予約部屋（v0.5.0。DESIGN §14）
 
-  private machine(id: number): CraneMachine {
-    let m = this.machines.get(id);
+  private reservationView(r: ReservationRow): ReservationView {
+    const { passHash: _h, ownerKey: _k, ...v } = r;
+    return v;
+  }
+
+  /** まだ終わっていない予約（誰でも見られる形） */
+  reservationViews(): ReservationView[] {
+    const now = this.now();
+    return this.reservations.filter((r) => r.endAt > now).map((r) => this.reservationView(r));
+  }
+
+  private broadcastReservations(): void {
+    this.hooks.broadcast({ type: 'reservations', reservations: this.reservationViews() });
+  }
+
+  /** いま予約部屋を開いている予約 */
+  activeReservation(): ReservationRow | undefined {
+    this.syncSlot();
+    return this.reservations.find((r) => r.id === this.slot.id);
+  }
+
+  /**
+   * 予約の時間の移り変わりを当てる（数秒ごとの tick・入室の前に呼ぶ。時計は cfg.now なのでテストで進められる）。
+   * - 開いていた予約が終わった（取り消された）：予約部屋の全員をオープン部屋へ戻し、チャット・お知らせ・筐体・クレーンゲームを消す
+   * - 新しい予約が始まった：その部屋の案内を流す
+   * - 終わる 10 分前・5 分前：予約部屋に案内
+   */
+  syncSlot(): void {
+    const now = this.now();
+    const before = this.reservations.length;
+    this.reservations = this.reservations.filter((r) => r.endAt > now);
+    const active = activeReservation(this.reservations, now);
+    const nextId = active?.id ?? null;
+    if (this.slot.id !== nextId) {
+      if (this.slot.id !== null) this.closeReservedRoom(this.closeReason ?? ROOM_ENDED_TEXT);
+      this.closeReason = null;
+      this.slot = { id: nextId, warned: new Set() };
+      if (active)
+        this.addChat('reserved', 'system', null, null, `🔑 予約部屋「${active.title}」が開きました（${formatReservationRange(active)}・予約：${active.host}）`);
+    }
+    if (active) {
+      const left = active.endAt - now;
+      const crossed = RESERVATION_WARN_MS.filter((w) => left <= w && !this.slot.warned.has(w));
+      if (crossed.length) {
+        for (const w of RESERVATION_WARN_MS) if (left <= w) this.slot.warned.add(w);
+        const mins = Math.max(1, Math.ceil(left / 60000));
+        this.addChat(
+          'reserved',
+          'system',
+          null,
+          null,
+          `⏰ 予約の時間はあと ${mins} 分です（${jstTime(active.endAt)} に終わります。終わるとオープン部屋に戻ります）`,
+        );
+      }
+    }
+    if (this.reservations.length !== before) this.broadcastReservations();
+  }
+
+  /** 予約部屋を閉じる：全員をオープン部屋へ戻してから、部屋の中身を消す（次の予約に前のチャットを残さない） */
+  private closeReservedRoom(reason: string): void {
+    for (const p of this.inRoom('reserved')) this.moveTo(p, 'open', true, reason);
+    const r = this.room('reserved');
+    r.data.clear();
+    r.cabinets = FLOOR.cabinets.map((s) => emptyCabinet(s.id));
+    r.machines.clear();
+    r.craneNext.clear();
+    this.grants.clear();
+    this.roomBans.clear();
+  }
+
+  /** 予約部屋に入れない理由（入れるなら null）。合言葉は見ない（予約した人・管理者・この予約の合言葉を入れた人だけ） */
+  private reservedRefusal(k: string): string | null {
+    const active = this.reservations.find((r) => r.id === this.slot.id);
+    if (!active) return closedRoomText(this.reservationViews(), this.now());
+    if (active.ownerKey === k || this.isAdmin(k)) return null;
+    if (this.roomBans.has(k)) return '主催者により、この予約の間は予約部屋に入れません';
+    if (this.grants.get(k) === active.id) return null;
+    return '予約部屋に入るには合言葉が必要です';
+  }
+
+  /** 予約の一覧（誰でも）。鍵があれば、その人があと予約できる時間も */
+  listReservations(keyHash: string | null): ReservationsResponse {
+    this.syncSlot();
+    const now = this.now();
+    const u = keyHash ? this.store.getUser(keyHash) : undefined;
+    return {
+      reservations: this.reservationViews(),
+      serverNow: now,
+      activeId: this.slot.id,
+      myLeftMs: u ? this.leftMs(u.key_hash) : null,
+    };
+  }
+
+  private leftMs(k: string): number {
+    return Math.max(0, RESERVATION_KEY_TOTAL_MS - reservedTotalMs(this.reservations.filter((r) => r.ownerKey === k), this.now()));
+  }
+
+  /** 予約する（入室したことのある人なら誰でも。空いている枠だけ・1 人の合計 5 時間まで） */
+  createReservation(keyHash: string | null, input: unknown): ReservationView {
+    const k = this.requireKey(keyHash);
+    const u = this.store.getUser(k);
+    if (!u) throw new ArcadeError(409, '先に名前を決めて入店してください', 'need-enter');
+    this.requireBanFree(k);
+    this.syncSlot();
+    const now = this.now();
+    const { value, error } = validateReservation(input, now);
+    if (!value) throw new ArcadeError(400, error!.message, error!.code);
+    const span = { startAt: value.startAt, endAt: value.startAt + value.minutes * 60 * 1000 };
+    const clash = this.reservations.find((r) => overlaps(r, span));
+    if (clash) throw new ArcadeError(409, `その時間はほかの予約（${formatReservationRange(clash)}）と重なっています`, 'overlap');
+    const left = this.leftMs(k);
+    if (span.endAt - span.startAt > left)
+      throw new ArcadeError(
+        409,
+        `予約できるのは 1 人あわせて ${RESERVATION_KEY_TOTAL_MS / 3600000} 時間までです（あと ${Math.floor(left / 60000)} 分）`,
+        'too-much',
+      );
+    const row = this.store.addReservation({
+      createdAt: now,
+      startAt: span.startAt,
+      endAt: span.endAt,
+      title: value.title,
+      host: value.host,
+      description: value.description,
+      passHash: hashPassphrase(value.passphrase),
+      ownerKey: k,
+      ownerPid: u.pid,
+    });
+    this.reservations = [...this.reservations, row].sort((a, b) => a.startAt - b.startAt);
+    this.broadcastReservations();
+    this.addChat('open', 'system', null, null, `📅 ${value.host} さんが予約部屋を予約しました：「${row.title}」（${formatReservationRange(row)}）`);
+    this.syncSlot();
+    return this.reservationView(row);
+  }
+
+  /** 取り消す（予約した人か管理者）。使っている最中なら予約部屋をすぐ閉じる */
+  cancelReservation(keyHash: string | null, rawId: unknown): void {
+    const k = this.requireKey(keyHash);
+    this.syncSlot();
+    const id = Number(rawId);
+    const row = Number.isInteger(id) ? this.reservations.find((r) => r.id === id) : undefined;
+    if (!row) throw new ArcadeError(404, 'その予約はありません（終わったか、取り消されています）', 'not-found');
+    if (row.ownerKey !== k && !this.isAdmin(k)) throw new ArcadeError(403, '取り消せるのは予約した人か管理者だけです', 'not-owner');
+    this.store.deleteReservation(row.id);
+    this.reservations = this.reservations.filter((r) => r.id !== row.id);
+    if (row.id === this.slot.id) this.closeReason = ROOM_CANCELLED_TEXT;
+    this.syncSlot();
+    this.broadcastReservations();
+  }
+
+  /**
+   * 部屋に入る（扉・予約表・入店の画面から）。予約部屋は予約の時間の間だけで、合言葉が要る（予約した人・管理者は要らない）。
+   * 合言葉が合えばその鍵を覚える（再読み込みで入り直せる）。店内にいればその場で部屋を移し、welcome を送る。
+   * 合言葉が違うときは code = bad-passphrase（app.ts が回数を数える）
+   */
+  enterRoom(keyHash: string | null, rawRoom: unknown, passphrase: unknown): RoomEnterResponse {
+    const k = this.requireKey(keyHash);
+    if (!this.store.getUser(k)) throw new ArcadeError(409, '先に名前を決めて入店してください', 'need-enter');
+    this.requireBanFree(k);
+    if (!isRoomId(rawRoom)) throw new ArcadeError(404, 'その部屋はありません', 'not-found');
+    const p = this.online.get(k);
+    if (rawRoom === 'open') {
+      if (p) this.moveTo(p, 'open', true);
+      return { room: 'open', moved: !!p, reservation: null };
+    }
+    this.syncSlot();
+    const active = this.reservations.find((r) => r.id === this.slot.id);
+    if (!active) throw new ArcadeError(409, closedRoomText(this.reservationViews(), this.now()), 'room-closed');
+    const admin = this.isAdmin(k);
+    if (active.ownerKey !== k && !admin && this.roomBans.has(k))
+      throw new ArcadeError(403, '主催者により、この予約の間は予約部屋に入れません', 'room-banned');
+    if (active.ownerKey !== k && !admin && this.grants.get(k) !== active.id) {
+      if (typeof passphrase !== 'string' || !passphrase.trim()) throw new ArcadeError(403, '合言葉を入れてください', 'need-passphrase');
+      if (!checkPassphrase(passphrase.normalize('NFC').trim(), active.passHash)) throw new ArcadeError(403, '合言葉が違います', 'bad-passphrase');
+      this.grants.set(k, active.id);
+    }
+    if (p && p.room !== 'reserved') {
+      if (this.inRoom('reserved').length >= this.cfg.maxPlayers && !admin)
+        throw new ArcadeError(503, `予約部屋は満員です（${this.cfg.maxPlayers} 人まで）`, 'full');
+      this.moveTo(p, 'reserved', true);
+    }
+    return { room: 'reserved', moved: !!p, reservation: this.reservationView(active) };
+  }
+
+  /** 予約部屋の中で、主催者（かサイトの管理者）だけ */
+  private requireHostInRoom(keyHash: string | null): { k: string; admin: boolean; active: ReservationRow } {
+    const r = this.requireRoomPower(keyHash);
+    const active = this.reservations.find((x) => x.id === this.slot.id);
+    if (r.room !== 'reserved' || !active) throw new ArcadeError(409, '予約部屋の中でできる操作です', 'not-in-room');
+    return { k: r.k, admin: r.admin, active };
+  }
+
+  /** 人を予約部屋から出す（オープン部屋へ戻し、この予約の間は入れなくする）。主催者・サイトの管理者 */
+  removeFromRoom(keyHash: string | null, rawPid: unknown): void {
+    const { k, admin } = this.requireHostInRoom(keyHash);
+    const pid = typeof rawPid === 'string' ? rawPid : '';
+    const target = [...this.online.values()].find((x) => x.pid === pid && x.room === 'reserved');
+    if (!target) throw new ArcadeError(404, 'その人は予約部屋にいません', 'not-found');
+    if (target.keyHash === k) throw new ArcadeError(400, '自分は出せません', 'self');
+    if (!admin && this.isAdmin(target.keyHash)) throw new ArcadeError(403, 'サイトの管理者は出せません', 'not-admin');
+    this.roomBans.add(target.keyHash);
+    this.grants.delete(target.keyHash);
+    this.moveTo(target, 'open', true, ROOM_REMOVED_TEXT);
+    this.addChat('reserved', 'system', null, null, `${target.name} さんがオープン部屋に戻されました`);
+  }
+
+  /** 合言葉を変える（いま中にいる人はそのまま。出ていた人は新しい合言葉が要る）。主催者・サイトの管理者 */
+  changeRoomPassphrase(keyHash: string | null, raw: unknown): void {
+    const { active } = this.requireHostInRoom(keyHash);
+    const pass = checkReservationPass(raw);
+    if (!pass.value) throw new ArcadeError(400, pass.error!.message, pass.error!.code);
+    const passHash = hashPassphrase(pass.value);
+    this.store.updateReservation(active.id, { passHash });
+    active.passHash = passHash;
+    const inside = new Set(this.inRoom('reserved').map((x) => x.keyHash));
+    for (const g of [...this.grants.keys()]) if (!inside.has(g)) this.grants.delete(g);
+    this.addChat('reserved', 'system', null, null, '🔑 主催者が予約部屋の合言葉を変えました');
+  }
+
+  /** 予約を早めに終える（全員オープン部屋へ・予約部屋の中身を消す）。主催者・サイトの管理者 */
+  endRoomEarly(keyHash: string | null): void {
+    const { active } = this.requireHostInRoom(keyHash);
+    const now = this.now();
+    this.store.updateReservation(active.id, { endAt: now });
+    active.endAt = now;
+    this.closeReason = ROOM_CLOSED_BY_HOST_TEXT;
+    this.syncSlot();
+    this.broadcastReservations();
+  }
+
+  // ---------------------------------------------------------------- クレーンゲーム（DESIGN §8。部屋ごと）
+
+  private machine(room: RoomId, id: number): CraneMachine {
+    const machines = this.room(room).machines;
+    let m = machines.get(id);
     if (!m) {
       m = newMachine(id, this.rng);
-      this.machines.set(id, m);
+      machines.set(id, m);
     }
     return m;
   }
@@ -659,9 +1065,10 @@ export class Arcade {
   craneState(keyHash: string | null, rawId: unknown): CraneStateResponse {
     const k = this.requireKey(keyHash);
     const spot = this.requireCrane(rawId);
+    const room = this.roomOf(k);
     return {
-      machine: machineView(this.machine(spot.id)),
-      cooldownUntil: this.craneNext.get(k) ?? 0,
+      machine: machineView(this.machine(room, spot.id)),
+      cooldownUntil: this.room(room).craneNext.get(k) ?? 0,
       serverNow: this.now(),
       badges: this.badgesOf(k),
     };
@@ -676,13 +1083,14 @@ export class Arcade {
     const arm = normalizeArm(rawX, rawZ);
     if (!arm) throw new ArcadeError(400, 'アームの位置が不正です', 'bad-input');
     const now = this.now();
-    const next = this.craneNext.get(p.keyHash) ?? 0;
+    const room = this.room(p.room);
+    const next = room.craneNext.get(p.keyHash) ?? 0;
     if (now < next) throw new ArcadeError(429, `次に遊べるまで あと ${Math.ceil((next - now) / 1000)} 秒です`, 'cooldown');
     const cooldownUntil = now + this.cfg.craneCooldownMs;
-    this.craneNext.set(p.keyHash, cooldownUntil);
+    room.craneNext.set(p.keyHash, cooldownUntil);
 
-    const r = resolveCrane(this.machine(spot.id), arm, this.rng, this.cfg.craneOdds);
-    this.machines.set(spot.id, r.machine);
+    const r = resolveCrane(this.machine(p.room, spot.id), arm, this.rng, this.cfg.craneOdds);
+    room.machines.set(spot.id, r.machine);
     let gained = false;
     let duplicate = false;
     let completed = false;
@@ -693,12 +1101,12 @@ export class Arcade {
       badges = a.badges;
       if (gained) {
         this.hold(p.keyHash).badges = badges;
-        this.hooks.broadcast({ type: 'player', player: this.playerView(p) });
+        this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
         const u = this.store.getUser(p.keyHash);
         if (u) this.hooks.send(p.keyHash, { type: 'you', you: this.profileOf(u) });
         // 取れたときだけ案内する（ダブり・外れは流さない）
-        this.addChat('system', null, null, `${p.name} さんがクレーンゲームで ${r.suit} を取った！`);
-        if (completed) this.addChat('system', null, null, `🎉 ${p.name} さんが 4 種類コンプリート！`);
+        this.addChat(p.room, 'system', null, null, `${p.name} さんがクレーンゲームで ${r.suit} を取った！`);
+        if (completed) this.addChat(p.room, 'system', null, null, `🎉 ${p.name} さんが 4 種類コンプリート！`);
       }
     }
     return {
@@ -718,7 +1126,7 @@ export class Arcade {
     };
   }
 
-  // ---------------------------------------------------------------- ポスター（DESIGN §9）
+  // ---------------------------------------------------------------- ポスター（DESIGN §9。店全体で 1 つ）
 
   private posterView(r: PosterRow): PosterView {
     const { authorKey: _k, ...v } = r;
@@ -772,7 +1180,7 @@ export class Arcade {
     if (all.length >= this.cfg.posterMaxTotal) throw new ArcadeError(409, '掲示板がいっぱいです。少し待ってから貼ってください', 'board-full');
     const r = this.store.addPoster({ key: p.keyHash, pid: p.pid, name: p.name }, value, this.now());
     this.broadcastPosters();
-    this.addChat('system', null, null, `📌 ${p.name} さんがポスターを貼りました：「${r.title}」（${formatPosterRange(r)}）`);
+    this.addChat(p.room, 'system', null, null, `📌 ${p.name} さんがポスターを貼りました：「${r.title}」（${formatPosterRange(r)}）`);
     return this.posterView(r);
   }
 
@@ -808,7 +1216,7 @@ export class Arcade {
     this.broadcastPosters();
     return this.posterView(this.store.getPoster(r.id)!);
   }
-  // ---------------------------------------------------------------- コミュニケーションノート（v0.4.0。DESIGN §12）
+  // ---------------------------------------------------------------- コミュニケーションノート（v0.4.0。DESIGN §12。店全体で 1 つ）
 
   /** 一覧（誰でも読める）：新しいものから limit 件、before があればその id より古いもの。古い順 */
   listNotes(rawBefore: unknown, rawLimit: unknown): NotesResponse {
@@ -829,11 +1237,11 @@ export class Arcade {
     const total = this.store.countNotes();
     for (const id of removed) this.hooks.broadcast({ type: 'note-delete', id, total });
     this.hooks.broadcast({ type: 'note', note, total });
-    // チャットへの案内は控えめに（同じ人は NOTE_ANNOUNCE_MS に 1 回）
+    // チャットへの案内は控えめに（同じ人は NOTE_ANNOUNCE_MS に 1 回。書いた人のいる部屋に）
     const last = this.noteAnnounced.get(p.keyHash) ?? 0;
     if (this.now() - last >= NOTE_ANNOUNCE_MS) {
       this.noteAnnounced.set(p.keyHash, this.now());
-      this.addChat('system', null, null, `📖 ${note.name} さんがノートに書きました`);
+      this.addChat(p.room, 'system', null, null, `📖 ${note.name} さんがノートに書きました`);
     }
     return note;
   }
@@ -863,7 +1271,7 @@ export class Arcade {
     return { ok: true };
   }
 
-  /** 店内にいる管理者にだけ、未読の件数を知らせる */
+  /** 店内にいる管理者にだけ、未読の件数を知らせる（どの部屋にいても） */
   private notifyAdmins(added = false): void {
     const unread = this.store.countUnreadRequests();
     for (const k of this.online.keys()) if (this.isAdmin(k)) this.hooks.send(k, { type: 'requests', unread, ...(added ? { added } : {}) });

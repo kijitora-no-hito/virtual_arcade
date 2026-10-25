@@ -65,6 +65,7 @@ export const ChatLine = ({
       )}
       <span className="chat-time">{time(m.at)}</span>
       <span className="chat-name">
+        {m.host && <span className="host-tag">主催</span>}
         <NameBadges name={m.name ?? ''} badges={m.badges} />
       </span>
       <span className="chat-text">{m.text}</span>

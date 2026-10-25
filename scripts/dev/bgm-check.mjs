@@ -28,7 +28,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'va-edge-'));
 const p = spawn(
   edge,
   [
-    '--headless=new',
+    '--headless=new', '--mute-audio',
     '--window-size=1920,1080',
     '--hide-scrollbars',
     `--remote-debugging-port=${port}`,
@@ -41,6 +41,23 @@ const p = spawn(
   ],
   { stdio: 'ignore' },
 );
+
+// Edge を必ず閉じる（終わり・失敗・Ctrl+C）。ヘッドレスでも音は出るので --mute-audio で起動している（v0.5.0）
+const killEdge = () => {
+  try {
+    p.kill();
+  } catch {}
+};
+process.on('exit', killEdge);
+process.on('SIGINT', () => process.exit(130));
+process.on('uncaughtException', (e) => {
+  console.error(e);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(e);
+  process.exit(1);
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let list = null;
 for (let i = 0; i < 60 && !list; i++) {
@@ -94,7 +111,7 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, de
 // 鍵を入れてから開く（再読み込みで自動入店した場合と同じ）
 await send('Page.navigate', { url: new URL(base).origin + '/__ls' });
 await sleep(1000);
-await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(state.me))}); localStorage.removeItem('va:bgm')`);
+await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(state.me))}); localStorage.removeItem('va:bgm'); sessionStorage.setItem('va:room', 'open')`);
 await send('Page.navigate', { url: `${base}/#dev` });
 await sleep(4000);
 

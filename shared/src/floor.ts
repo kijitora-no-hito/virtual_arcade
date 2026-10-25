@@ -19,8 +19,8 @@ export interface CabinetSpot {
   color: string;
 }
 
-/** note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13） */
-export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox';
+/** note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13）、door = 予約部屋の扉・calendar = 予約カレンダー（v0.5.0。DESIGN §14） */
+export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar';
 
 export interface Decor {
   type: DecorType;
@@ -53,7 +53,7 @@ export interface Floor extends FloorJson {
   passable: boolean[][];
 }
 
-const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox'];
+const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar'];
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 

@@ -10,3 +10,4 @@ export * from './songs';
 export * from './crane';
 export * from './posters';
 export * from './notes';
+export * from './rooms';

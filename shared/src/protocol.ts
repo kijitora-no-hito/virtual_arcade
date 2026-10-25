@@ -4,6 +4,7 @@ import type { BgmMeta } from './bgm';
 import type { BadgeMode, CraneMachineView, CraneOutcome, Suit } from './crane';
 import type { NoteView } from './notes';
 import type { PosterView } from './posters';
+import type { ReservationView, RoomId } from './rooms';
 import type { Point } from './floor';
 import type { Emote, Look } from './looks';
 
@@ -23,6 +24,8 @@ export interface PlayerView {
   badges: string;
   /** ピン止めした自分の発言（頭上に出しっぱなしの吹き出し）。1 人 1 つ */
   pinned: PinnedChat | null;
+  /** v0.5.0：予約部屋の主催者（いまの予約を予約した人。予約部屋の中だけ）。名前の前に「主催」 */
+  host?: boolean;
 }
 
 export interface PinnedChat {
@@ -60,6 +63,8 @@ export interface ChatMessage {
   text: string;
   /** 発言したときのバッジ（名前の後ろに付ける） */
   badges?: string;
+  /** v0.5.0：予約部屋の主催者の発言 */
+  host?: boolean;
 }
 
 export interface Notice {
@@ -96,6 +101,15 @@ export interface MetaResponse {
     badgeMode: BadgeMode;
     stackMax: number;
     badgeKeepMs: number;
+  };
+  /** v0.5.0：部屋ごとの人数 */
+  onlineByRoom?: Record<RoomId, number>;
+  /** v0.5.0：予約部屋の予約の決まり（DESIGN §14） */
+  reservations?: {
+    slotMs: number;
+    maxTotalMs: number;
+    aheadMs: number;
+    limits: Record<string, number>;
   };
   posters: {
     /** 書ける人（all = 店内の全員、admin = 管理者だけ） */
@@ -138,6 +152,24 @@ export interface CranePlayResponse {
   machine: CraneMachineView;
 }
 
+/** GET /api/reservations（v0.5.0。誰でも読める。合言葉・ハッシュは載せない） */
+export interface ReservationsResponse {
+  reservations: ReservationView[];
+  serverNow: number;
+  /** いま使っている予約の id（無ければ null） */
+  activeId: number | null;
+  /** 鍵を付けて読んだとき：その人があと予約できる時間（ms）。入室したことが無ければ null */
+  myLeftMs: number | null;
+}
+
+/** POST /api/rooms/:room/enter（v0.5.0） */
+export interface RoomEnterResponse {
+  room: RoomId;
+  /** 店内にいたので、その場で部屋を移した（WebSocket に新しい welcome が届く） */
+  moved: boolean;
+  reservation: ReservationView | null;
+}
+
 export interface MeResponse {
   profile: Profile | null;
   /** 入室を止められている（その時刻まで） */
@@ -147,13 +179,22 @@ export interface MeResponse {
 // ---------------------------------------------------------------- WebSocket
 
 export type ClientMessage =
-  | { type: 'hello'; key: string }
+  /** proto = PROTOCOL（v0.5.0 から。無ければ古いクライアントとして再読み込みを頼む）・v = クライアントの版・room = 入りたい部屋 */
+  | { type: 'hello'; key: string; proto?: number; v?: string; room?: RoomId }
   | { type: 'goto'; x: number; y: number }
   | { type: 'emote'; emoji: Emote }
   | { type: 'watch'; cabinet: number | null };
 
 export interface WelcomeMessage {
   type: 'welcome';
+  /** v0.5.0：いまいる部屋（部屋を移ったときもこの welcome が届く） */
+  room: RoomId;
+  /** サーバの版（クライアントの版と違えば「再読み込みしてください」） */
+  version: string;
+  /** 予約の一覧（これからの分。誰でも見られる） */
+  reservations: ReservationView[];
+  /** 部屋を移された理由（予約の時間が終わった など）。画面に一度だけ出す */
+  reason?: string;
   you: Profile;
   serverNow: number;
   players: PlayerView[];
@@ -176,6 +217,8 @@ export type ServerMessage =
   | { type: 'cabinet'; cabinet: CabinetView }
   | { type: 'notices'; notices: Notice[] }
   | { type: 'posters'; posters: PosterView[] }
+  /** v0.5.0：予約の一覧が変わった（全部の部屋の全員へ） */
+  | { type: 'reservations'; reservations: ReservationView[] }
   /** v0.4.0：ノートに書かれた・消された（total = 全体の件数） */
   | { type: 'note'; note: NoteView; total: number }
   | { type: 'note-delete'; id: number; total: number }
@@ -186,4 +229,5 @@ export type ServerMessage =
   | { type: 'you'; you: Profile }
   | { type: 'kicked'; reason: string; until?: number }
   | { type: 'error'; error: string; code?: string }
-  | { type: 'pong' };
+  /** serverNow（v0.5.0）：時計の差を合わせ直す（予約部屋の残り時間） */
+  | { type: 'pong'; serverNow?: number };

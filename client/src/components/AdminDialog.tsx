@@ -1,4 +1,5 @@
 import {
+  formatReservationRange,
   NOTICE_MAX,
   requestKindColor,
   requestKindLabel,
@@ -10,6 +11,7 @@ import {
 } from '@va/shared';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '../api';
+import { useReservations } from './ReservationDialog';
 import type { ClientPlayer } from '../game/client';
 import { NameBadges } from './Badges';
 
@@ -101,6 +103,53 @@ const RequestList = ({ unread }: { unread: number }) => {
   );
 };
 
+/** 予約の一覧（管理者。v0.5.0）：どの予約でも取り消せる（使っている最中なら予約部屋はすぐ閉まる） */
+const ReservationAdmin = () => {
+  const { data, now, reload, error: loadError } = useReservations(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cancel = async (id: number, title: string) => {
+    if (!window.confirm(`「${title}」の予約を取り消しますか？（予約した人には知らせません）`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api('DELETE', `/api/reservations/${id}`);
+      await reload();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!data) return <p className="muted">{loadError ?? '読み込み中…'}</p>;
+  const t = now();
+  return (
+    <div className="request-admin">
+      <p className="muted small">予約部屋のこれからの予約（{data.reservations.length} 件）。合言葉は管理者にも見えません（管理者は合言葉なしで入れます）。</p>
+      {data.reservations.length === 0 && <p className="muted">予約はありません。</p>}
+      <ul className="request-list">
+        {data.reservations.map((r) => (
+          <li key={r.id} className="request-item">
+            <div className="request-item-head">
+              {r.startAt <= t && t < r.endAt && <span className="res-tag live">開室中</span>}
+              <span>{formatReservationRange(r)}</span>
+              <b>「{r.title}」</b>
+              <span className="muted small">予約：{r.host}</span>
+            </div>
+            {r.description && <div className="request-text">{r.description}</div>}
+            <div className="request-acts">
+              <button className="small danger" disabled={busy} onClick={() => cancel(r.id, r.title)}>
+                取り消す
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+};
+
 /** 管理者の窓：合言葉の入力 → お知らせ・退室と入室の停止（筐体は筐体の窓から、チャットの削除は欄の × から）・要望（v0.4.0） */
 export const AdminDialog = ({
   you,
@@ -118,9 +167,9 @@ export const AdminDialog = ({
   onClose: () => void;
   /** 要望の未読の件数 */
   unread?: number;
-  initialTab?: 'main' | 'requests';
+  initialTab?: 'main' | 'requests' | 'reservations';
 }) => {
-  const [tab, setTab] = useState<'main' | 'requests'>(initialTab);
+  const [tab, setTab] = useState<'main' | 'requests' | 'reservations'>(initialTab);
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -160,10 +209,15 @@ export const AdminDialog = ({
             <button className={`tab ${tab === 'requests' ? 'on' : ''}`} onClick={() => setTab('requests')}>
               📮 要望{unread > 0 && <span className="count-badge">{unread}</span>}
             </button>
+            <button className={`tab ${tab === 'reservations' ? 'on' : ''}`} onClick={() => setTab('reservations')}>
+              🔑 予約
+            </button>
           </div>
         )}
         {you.admin && tab === 'requests' ? (
           <RequestList unread={unread} />
+        ) : you.admin && tab === 'reservations' ? (
+          <ReservationAdmin />
         ) : !you.admin ? (
           enabled ? (
             <form

@@ -126,8 +126,20 @@ export const MobileMenu = ({
   onClose,
   version,
   adminBadge,
+  room = 'open',
+  onSchedule,
+  onDoor,
+  onRoomAdmin,
+  host = false,
 }: {
   you: Profile | null;
+  /** v0.5.0：予約部屋の主催者・サイトの管理者の「部屋の管理」 */
+  onRoomAdmin?: () => void;
+  host?: boolean;
+  /** v0.5.0：いる部屋・予約表・予約部屋の扉（入る / オープン部屋へ戻る） */
+  room?: 'open' | 'reserved';
+  onSchedule?: () => void;
+  onDoor?: () => void;
   embedVideo: boolean;
   onEmbedVideo: (on: boolean) => void;
   onEditProfile: () => void;
@@ -143,10 +155,24 @@ export const MobileMenu = ({
       <div className="m-menu-me">
         <span className="m-menu-name">
           {you.admin && '★ '}
+          {host && <span className="host-tag">主催</span>}
           {you.name}
           <Badges badges={you.badges} />
         </span>
         <button onClick={onEditProfile}>見た目を変える</button>
+      </div>
+    )}
+    {(onSchedule || onDoor) && (
+      <div className="m-menu-actions m-menu-rooms">
+        {onSchedule && <button onClick={onSchedule}>📅 予約表</button>}
+        {onDoor && <button onClick={onDoor}>{room === 'reserved' ? '🚪 オープン部屋へ戻る' : '🔑 予約部屋に入る'}</button>}
+      </div>
+    )}
+    {onRoomAdmin && (
+      <div className="m-menu-actions m-menu-rooms">
+        <button className="room-admin-btn" onClick={onRoomAdmin}>
+          🛠 部屋の管理
+        </button>
       </div>
     )}
     <section className="m-menu-sec">
@@ -199,6 +225,9 @@ export const MobileMenu = ({
         </li>
         <li>
           <b>チャット</b> 下の数行をタップすると履歴（自分の発言は 📌 でピン止め）
+        </li>
+        <li>
+          <b>予約部屋</b> 奥の扉から合言葉で入る　<b>予約カレンダー</b> 扉の横・空いている枠を予約
         </li>
       </ul>
     </section>

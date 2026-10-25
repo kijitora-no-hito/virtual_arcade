@@ -3,16 +3,18 @@
 > **`CLAUDE.local.md` があれば、それも読むこと**（この PC・自分のサーバだけの事情。git に入れない）。
 
 バーチャルゲームセンター：ブラウザから入れるクオータービューの店内を歩き、チャット・エモーションでやりとりし、筐体に YouTube の配信と宣伝を置ける。
-**Android アプリではなく Web アプリ**（ワークスペース共通の Android 方針は当てはまらない）。仕様の正本は `docs/DESIGN.md`（Q1〜Q7 はユーザー決定済み。§8〜§10 は v0.3.0、§11〜§13 は v0.4.0）。
+**Android アプリではなく Web アプリ**（ワークスペース共通の Android 方針は当てはまらない）。仕様の正本は `docs/DESIGN.md`（Q1〜Q7 はユーザー決定済み。§8〜§10 は v0.3.0、§11〜§13 は v0.4.0、§14 は v0.5.0）。
 
-- 版: v0.4.1（2026-10-25。スマホでキーボードを出すと縦横が切り替わって発言の欄のキーボードがすぐ閉じていたのを直した。v0.4.0 でスマホのレイアウト・コミュニケーションノート・機能追加要望箱を足した。v0.1.0〜v0.3.0 も同じ日）。GitHub `kijitora-no-hito/virtual_arcade`（公開・MIT ライセンス）。
+- 版: v0.5.0（2026-10-26。オープン部屋と予約部屋。DESIGN §14・下の「0.5.0 で決めたこと」）。v0.4.1（2026-10-25。スマホでキーボードを出すと縦横が切り替わって発言の欄のキーボードがすぐ閉じていたのを直した。v0.4.0 でスマホのレイアウト・コミュニケーションノート・機能追加要望箱を足した。v0.1.0〜v0.3.0 も同じ日）。GitHub `kijitora-no-hito/virtual_arcade`（公開・MIT ライセンス）。
 - Node 22.13 以降（`node:sqlite` の `DatabaseSync` を使う。ネイティブビルドの要るパッケージは使わない方針）。
 
-## 引き継ぎ（2026-10-25 時点。続きから始めるときは最初にここを読む）
+## 引き継ぎ（2026-10-26 時点。続きから始めるときは最初にここを読む）
 
 - **読む順**：この節 → `docs/DESIGN.md`（✅ = ユーザー指定、🔧 = 叩き台）→ 下の「DESIGN にない部分で決めたこと」。
 - **状態**：v0.1 の範囲（DESIGN §1〜§4）・v0.2.0 の店内の BGM（DESIGN §7）・v0.3.0 のクレーンゲーム（§8）・ポスター欄（§9）・チャットのピン止め（§10）・
-  v0.4.0 のスマホのレイアウト（§11）・コミュニケーションノート（§12）・機能追加要望箱（§13）を実装済み。
+  v0.4.0 のスマホのレイアウト（§11）・コミュニケーションノート（§12）・機能追加要望箱（§13）・v0.5.0 のオープン部屋と予約部屋（§14）を実装済み。
+  **v0.5.0**（2026-10-26。ユーザー「現在のものをオープン部屋に、もう一つ予約部屋を立てられるようにしてください」）：下の「0.5.0 で決めたこと」・「確認したこと（v0.5.0）」。
+  `npm test` 241 件・`npm run build`・`npm run package` が通る。**ユーザー未確認・未公開**（DESIGN の末尾の表 Y1〜Y7 が叩き台）。DB は新しい表 `reservations` を足すだけ（0.4.x へそのまま戻せる）。
   `npm test` 202 件・`npm run build`・`npm run package` が通る。v0.4.0 は下の「0.4.0 で決めたこと」。**v0.4.0 はユーザー未確認・スマホの実機は未確認**（DESIGN の末尾の表 M1〜R1 が叩き台）。
   **v0.4.1**（画面だけの修正、DB 変更なし）：0.4.0 の公開版で Android Chrome（Pixel・縦）の人から「チャットの欄を押すとキーボードが一瞬出てすぐ閉じる」。
   `interactive-widget=resizes-content` でキーボードが出ると表示域が 412×400 になり、幅と高さで決めていた `useLayout` が横向きに切り替え、縦と横で別の場所にあった発言の欄が作り直されてフォーカスが外れていた。
@@ -42,16 +44,21 @@
      指の操作の確認：`node scripts/dev/touch-check.mjs <URL#dev> <鍵> [out.png]`（タップで歩く・ドラッグ・ピンチ・タップで筐体）、
      `VIEWPORT=390x844 node scripts/dev/reach-check.mjs <URL#dev> <鍵> [out.png]`（店の端・置いてある物の前まで指で歩けるか・カメラが付いてくるか・四隅まで見回せるか・長押し・
      チャットの欄のタップで店内が動かないか。横向きは `VIEWPORT=844x390`）、`node scripts/dev/note-check.mjs <URL#dev> <鍵>`（ノートのスワイプ・書く・その場の反映）、
-     `node scripts/dev/keyboard-check.mjs <URL#dev> <鍵>`（v0.4.1。Pixel 412×915 で欄にフォーカス → 高さだけ 412×400 に縮めてキーボードを真似る。チャット・シート・ノート・要望・ポスター・管理者・名前の欄と回転）。
+     `node scripts/dev/keyboard-check.mjs <URL#dev> <鍵>`（v0.4.1。Pixel 412×915 で欄にフォーカス → 高さだけ 412×400 に縮めてキーボードを真似る。チャット・シート・ノート・要望・ポスター・管理者・名前の欄と回転。
+     v0.5.0 で予約の形の欄と予約部屋の合言葉の欄（予約部屋が開いていて、自分の予約でも管理者でもない鍵のときだけ）も見る）。
      どれも `OK / NG` を 1 行ずつ出し、NG の数で終わる。ヘッドレスの Edge は前面・フォーカスありにしないとタッチの返事が来ないことがある（スクリプトの中でしている）。
      scene.mjs は v0.4.0 からノート 8 件（見開き 1 つ分）と要望 3 件も書く（架空の名前・当たり障りのない文）。
+  7. **v0.5.0（部屋）**：前に来た人も、新しく開いたときは入店の画面になる（このタブで店内にいたときだけ自動で入る）。そのため確認の道具は sessionStorage `va:room` を入れてから開く
+     （shot.mjs は `ROOM=open`（既定）/ `reserved` / `none`（入店の画面））。`#dev` の `__va` に `door()`・`calendar()`・`room()` と `open({kind:'reserve'|'door'})`。
+     予約部屋を撮るには、API で今の枠の予約を入れて（`POST /api/reservations`）、予約した人の鍵で `ROOM=reserved`。予約の時間の移り変わりはサーバが 5 秒ごとに見る。
+     scene.mjs・確認の道具の WebSocket は hello に `proto: 2` を付ける（無いと古いページとして切られる）。同じ IP から WebSocket は 10 本までなので、scene（6 人）にほかの bot を足すと確認の道具がつなげなくなる。
 - **BGM の確認の手順**（音は聞けないので数字で。自動）：上の 1・2 のあと
   `node scripts/dev/bgm-check.mjs http://127.0.0.1:8798/arcade <状態ファイル> out.png`（自動再生の制限・全曲の再生と切り替え・順番に回す・継ぎ目・視聴画面のフェード・
   消音と設定・合成の曲の書き出し・曲の一覧の撮影。視聴画面の埋め込みは読み込ませずに偽の状態で確かめる）と、
   `REAL_EMBED=1 node scripts/dev/bgm-check.mjs …`（本物の YouTube の埋め込みが再生を始めたら BGM が止まるか）。`WAV_DIR=<フォルダ>` で合成の曲の WAV を書き、
   `python tools/bgm/loudness.py --ref <WAV …>` で同梱の曲と音量を比べられる。
-- **版を上げるとき**：package.json 4 つ・`package-lock.json`・`server/src/app.ts` の `VERSION` の既定値（package では版が埋め込まれる）・`deploy/INSTRUCTIONS.md` の例を直し、`npm run package`
-  （入店の画面の右下に `/api/meta` の版が出る）。
+- **版を上げるとき**：package.json 4 つ・`package-lock.json`・`server/src/app.ts` の `VERSION` の既定値（package では版が埋め込まれる）・`server/test/api.test.ts` の版・`deploy/INSTRUCTIONS.md` の例を直し、`npm run package`
+  （入店の画面の右下に `/api/meta` の版が出る）。v0.5.0 からクライアントにも版が入る（`client/vite.config.ts` が package.json から読む）。サーバの版と違えば「新しい版があります［再読み込み］」。
 
 ## 公開リポジトリと、git に入れないもの
 
@@ -92,6 +99,9 @@
 - `songs.ts` 合成の曲 3 曲（`SONGS`）
 - `notes.ts`（v0.4.0）ノート：`NOTE_LIMITS`（名前 20・文 90・3 行）・`validateNote`（空の行を詰める・NG 語）・ページ分け（`notePageCount` / `noteViewCount` / `viewPages` / `pageRange` / `convertView`）・
   要望：`REQUEST_KINDS`・`validateRequest`（500 文字・名前なし可・**NG 語では断らない**）・置き場所 `noteSpots` / `requestBoxSpots`（floor.json の decor の `note` / `requestbox`）
+- `rooms.ts`（v0.5.0）部屋 `RoomId`（open / reserved）・`PROTOCOL`（= 2）・予約の決まり（`SLOT_MS` 30 分・`RESERVATION_KEY_TOTAL_MS` 5 時間・14 日先・`RESERVATION_LIMITS`）・
+  `validateReservation`（30 分の枠・長さ・文字数・NG 語・合言葉）・`overlaps`・`activeReservation` / `nextReservation` / `reservedTotalMs` / `maxLengthFrom`・JST の表示（`jstTime`・`jstDate`・`formatReservationRange`。Intl を使わない）・
+  `closedRoomText`・扉と予約カレンダーの置き場所 `doorSpots` / `calendarSpots` / `doorFront`（floor.json の decor の `door` / `calendar`）
 
 ### server のファイル
 
@@ -107,7 +117,13 @@
 - `bgm.ts` `listBgm`（`BGM_DIR` の bgm.json と音声ファイルの一覧）・`servableBgm`（配信してよいファイル名 = 一覧の intro / body）。配信は `app.ts` の `{BASE_PATH}/bgm/:file`
 - v0.4.0：`db.ts` に `notes`・`requests` の表、`arcade.ts` に `listNotes` / `writeNote` / `deleteNote`・`sendRequest` / `listRequests` / `markRequest` / `deleteRequest`
   （要望の未読の件数は店内にいる管理者にだけ `requests` で送る。管理者がつないだ・合言葉を入れたときも）
-- テスト：`test/harness.ts`（テスト用のサーバ・WebSocket の道具。v0.3.0 で api.test.ts から分けた）・`api.test.ts`・`v03.test.ts`（クレーンゲーム・バッジ・ポスター・ピン止め）・`v04.test.ts`（ノート・要望）・`unit.test.ts`
+- v0.5.0：`roomData.ts`（部屋ごとのチャット・お知らせ・筐体の置き場所。オープン部屋は今までの表、予約部屋は `MemRoomData`（メモリだけ・`clear`））。
+  `arcade.ts` は部屋ごとの状態 `rooms`（データ・筐体・クレーンゲームのケースと待ち時間）を持ち、`Online.room`・`Hooks.broadcast(msg, room?)`（room を省くと全部の部屋）。
+  予約：`reservations`（まだ終わっていない分の DB の写し）・`syncSlot`（時間の移り変わり。始まり・10 分前と 5 分前・終わりで全員をオープン部屋へ戻して `closeReservedRoom` で消す）・
+  `grants`（合言葉を入れた鍵 → 予約の id。メモリだけ）・`createReservation` / `cancelReservation` / `listReservations` / `enterRoom`・`moveTo`（部屋を移す。新しい welcome を送る）。
+  `db.ts` に `reservations` の表（新しい表だけ）。`app.ts` は hello の `proto` を見て古いページに再読み込みを頼む・5 秒ごとに `syncSlot`・合言葉の間違いだけを数える（`RateLimiter.blocked`）。
+- テスト：`test/harness.ts`（テスト用のサーバ・WebSocket の道具。v0.3.0 で api.test.ts から分けた。v0.5.0 から hello に proto: 2、`connect(key, path, room)`）・`api.test.ts`・`v03.test.ts`（クレーンゲーム・バッジ・ポスター・ピン止め）・`v04.test.ts`（ノート・要望）・
+  `v05.test.ts`（予約・合言葉・部屋ごと・時間の終わり。時計は `clock.t` で進めて `syncSlot()`）・`unit.test.ts`。shared は `test/rooms.test.ts`（v0.5.0）
 
 ### client のファイル
 
@@ -125,6 +141,9 @@
 - v0.4.0：`layout.ts`（PC / スマホの判断 `decideLayout`・キーボードで切り替えない `nextLayout`（v0.4.1）・`useLayout`（`<html>` の class）・設定 `va:mobile`）・`game/camera.ts`（スマホのカメラ：追従・ピンチ・ドラッグ・範囲・床と壁の大きな canvas。純粋。
   テスト `client/test/camera.test.ts`）・`components/Mobile.tsx`（チャットの最新の行・下からのシート・メニュー）・`NoteDialog`（ノート）・`RequestDialog`（要望を送る）。
   `ArcadePage` はスマホのとき別の JSX（ヘッダ・店内・下の欄）と指の操作（pointer events）、PC は v0.3.0 のまま。`render.ts` は `View.ts`（文字の倍率）・`WorldLayer`・`promoDock`・`embedThumb`・ノートの机と要望箱
+- v0.5.0：`components/ReservationDialog.tsx`（予約表 `ReservationDialog`：カレンダー（PC 7 日・スマホ 1 日）・一覧・予約の形、扉の窓 `RoomDoorDialog`：合言葉・閉まっているときの「次は ○○」・オープン部屋へ戻る、`useReservations`）。
+  `game/client.ts` に `room`・`roomSeq`・`reservations`・`outdated`（`CLIENT_VERSION`）。`render.ts` は部屋の色 `THEMES`（`drawStatic(…, room)`）・扉と予約カレンダー・上の中央の部屋名の帯。
+  `App` は sessionStorage `va:room`（再読み込みのときだけ自動で入る）、`EntryPage` に「🔑 予約部屋」の欄、`AdminDialog` に「🔑 予約」タブ、スマホのメニューに［📅 予約表］［🔑 予約部屋に入る / 🚪 オープン部屋へ戻る］。
 - `components/` `Badges`（名前の後ろのバッジ。4 色）・`CraneDialog`（クレーンゲームの窓）・`PosterDialog`（ポスターの一覧・詳細・書く）・`EntryPage`（入店・名前と見た目。入店のボタンで BGM を鳴らせるようにする・BGM のクレジット・版）・`BgmControls`（下のバーの BGM の操作と曲の一覧）・`ArcadePage`（店内・描画のループ・キーボード・マウス・埋め込み）・`ChatPanel`・`CabinetDialog`・`ScreenDialog`（大画面の一覧）・`WatchView`（視聴画面）・`AdminDialog`
 
 ## コマンド
@@ -161,11 +180,18 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   `GET /admin/requests`・`PATCH /admin/requests/:id {status: new|read|done}`・`DELETE /admin/requests/:id`（管理者だけ）。WebSocket で管理者にだけ `requests {unread, added?}`
 - 管理者：`POST /admin/login {password}`（IP ごと・鍵ごとに 10 分 5 回）/ `POST /admin/logout` / `POST /admin/notices {text}` / `DELETE /admin/notices/:id` /
   `DELETE /admin/chat/:id` / `POST /admin/kick {pid, minutes}`（0 = 退室だけ、1〜10080 分 = その鍵の入室を止める）
+- 予約部屋（v0.5.0）：`GET /reservations`（誰でも。これからの予約・`activeId`・鍵があれば `myLeftMs`）/ `POST /reservations {startAt, minutes, title, host, description, passphrase}`
+  （入店したことのある鍵。`bad-time` / `too-long` / `ng` / `bad-pass` / `overlap` / `too-much`（5 時間を超える）。鍵ごと 1 時間 6 回・IP ごと 12 回）/ `DELETE /reservations/:id`（予約した人か管理者）/
+  `POST /rooms/:room/enter {passphrase?}`（room = reserved | open。`room-closed` / `need-passphrase` / `bad-passphrase`（間違いだけを鍵ごと 10 分 5 回・IP ごと 20 回数える）/ `full`。
+  店内にいればその場で移って新しい `welcome`、いなければ `moved: false`（入店の画面。このあと hello の room で入る））。合言葉のハッシュ・鍵はどの返事にも載せない。
+  主催者（予約部屋の中で、その予約の間）とサイトの管理者：`POST /room/remove {pid}`（オープン部屋へ戻し、この予約の間は入れない）/ `POST /room/passphrase {passphrase}` / `POST /room/end`（早めに終える）。
+  お知らせ・発言の削除（`/admin/notices`・`/admin/chat/:id`）と筐体を空ける（`/cabinets/:id/release`）も主催者は予約部屋でだけできる
 - 店内の BGM のファイル：`GET {BASE_PATH}/bgm/<ファイル名>`（API の外。一覧の intro / body にあるものだけ。Range 可・`Cache-Control: public, max-age=3600`）
-- WebSocket `{BASE_PATH}/ws`：最初に `{type:'hello', key}`（鍵を URL に載せない）。その後 `goto {x,y}`（サーバが A* で経路を決めて全員に `move`。通れないマスは `blocked`）/
+- WebSocket `{BASE_PATH}/ws`：最初に `{type:'hello', key, proto: 2, v, room}`（鍵を URL に載せない。v0.5.0 から proto が無ければ `kicked`「再読み込みしてください」で切る）。その後 `goto {x,y}`（サーバが A* で経路を決めて全員に `move`。通れないマスは `blocked`）/
   `emote {emoji}` / `watch {cabinet | null}`（配信中の筐体の前のマスに座る）。
   サーバからは `welcome`（自分・全員・筐体・チャット・お知らせ・ポスター・サーバの時刻）/ `join` / `leave` / `player`（バッジ・ピン止めの変化も）/ `move` / `emote` / `chat` / `chat-delete` / `cabinet` / `notices` /
-  `posters` / `you` / `kicked` / `bye`（退店した）/ `error`。
+  `posters` / `you` / `kicked` / `bye`（退店した）/ `error`。v0.5.0：`welcome` に `room`・`version`・`reservations`・`reason`、`reservations`（予約の一覧が変わった・全部の部屋へ）。
+  部屋ごとのメッセージはその部屋の人にだけ（ノート・ポスター・予約の一覧は全員）。
 
 ## DESIGN にない部分で決めたこと（変えるならここ）
 
@@ -280,7 +306,42 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   NG 語では断らない。管理者の窓のタブ「📮 要望」（未読があればこのタブで開く）。未読の数は［管理者］のボタン・スマホは ☰ の赤い点とメニューの［管理者］。
 - **DB**：`notes`（id・at・author_key（鍵のハッシュ）・author_pid・name・text）・`requests`（id・at・kind・name・text・status）。起動時に CREATE TABLE IF NOT EXISTS で足すだけ。
 
+## 0.5.0 で決めたこと（オープン部屋と予約部屋。DESIGN §14）
+
+- **経緯**：ユーザー「現在のものをオープン部屋に、もう一つ予約部屋を立てられるようにしてください。」決定：空いていれば誰でも予約できる・入るのは合言葉・日時の枠で予約。
+  途中の変更：1 人あわせて 5 時間まで（最初の案は 1 人 1 件・3 時間まで）・予約表に予約した人の名前と部屋名（題名 → 部屋名）・部屋名を予約部屋の中にも出す・
+  入店の画面から予約して合言葉でそのまま予約部屋へ・オープン部屋に扉と予約カレンダー（物）を置く（カレンダーは日 × 時間の枠、空いている枠を押して予約。スマホは日ごとの枠の一覧）。
+- **作り**：部屋ごとの状態をサーバの `Arcade` の中に 2 つ持つ（`rooms.open` は今までの DB の表、`rooms.reserved` はメモリ）。人は 1 つの部屋にだけいる（`Online.room`）。
+  WebSocket は 1 本のまま、部屋を移るとサーバが新しい `welcome` を送る（クライアントは `roomSeq` が変わったら描画・窓を作り直す）。部屋を移る操作は REST（`/api/rooms/:room/enter`）。
+- **合言葉**：予約ごとに scrypt（塩つき）でハッシュにして `reservations.pass_hash` に入れる（管理者の合言葉と同じ `hashPassphrase`）。前後の空白は落として NFC。
+  合った鍵は `grants` に覚え、その予約の間は合言葉なしで入り直せる（再読み込み・扉の行き来）。予約が終わる・取り消す・サーバの再起動で消える。管理者の退室（kick）でも消す。
+- **時間**：枠は UTC の 30 分の倍数（JST は +9 時間で 30 分の倍数なので、そのまま JST の 00 分・30 分になる）。今の枠（始まっている 30 分）からは予約できる。
+  終わりは `syncSlot`（5 秒ごと・入る前・予約を作る・取り消すとき）で当てるので、最大 5 秒ほど遅れて戻る。案内は 10 分前・5 分前を 1 回ずつ（予約が 5 分を切ってから作られたら残りの分数で 1 回）。
+- **予約部屋の中身**：チャット・お知らせ・筐体・クレーンゲームはメモリだけ。閉じるときは先に全員をオープン部屋へ戻してから消す（`closeReservedRoom`）。続けての予約でも、いったん全員戻して消してから次を開く。
+  筐体の「1 人 1 台」とクレーンゲームの待ち時間は部屋ごと（オープン部屋と予約部屋で 1 台ずつ持てる）。
+- **位置**：DB の最後の位置（`users.x/y`）はオープン部屋のものだけ。部屋を移ると扉の前のマス（`doorFront` = (2,1)）に立つ。
+- **入店の画面**：前に来た人も、新しく開いたときは入店の画面（名前と見た目は入っている。［入店する］で今までどおりオープン部屋）。再読み込み（sessionStorage `va:room` がある）ときだけ自動で入る。
+  入店の画面で予約する・予約部屋に入るときは、先にその画面の名前と見た目で `/api/enter` してから（BGM を鳴らせるようにする `bgm.unlock()` もこの操作の中）。
+- **PC のオープン部屋**：上のバー・下のバー・チャットの欄は変えていない（差分は奥の壁ぎわの扉・予約カレンダー・その札だけ。予約部屋のときだけ上のバーに部屋名の札と［🚪 オープン部屋へ］）。
+  扉とカレンダーは `render.ts` の `panelBox`（壁ぎわの薄い板）。当たり判定は筐体・クレーンゲーム・ノート・要望箱の後、大画面より前。
+- **古いページ**：hello に `proto` が無ければ `kicked`「新しい版になりました。ページを再読み込みしてください」（0.4.x の画面は退室の札にこの文を出し、つなぎ直さない）。
+  index.html は no-cache・assets は名前にハッシュなので、再読み込みで新しい版になる。
+- **行末**：このリポジトリは CRLF のファイルと LF のファイルが混ざっている（`git ls-files --eol`）。編集したら元の行末にそろえる。
+- **主催者（予約した人）= 予約部屋の管理者**（途中のユーザー指定。DESIGN §14.6）：`Arcade.isRoomHost`（いまの予約の ownerKey・予約の時刻の間）と `requireRoomPower`
+  （サイトの管理者はどこでも、主催者は予約部屋の中にいるときだけ）。お知らせ・発言の削除は今までの `/api/admin/notices`・`/api/admin/chat/:id` のまま（サーバが部屋と主催かを見る）、
+  筐体を空けるのは `/api/cabinets/:id/release`、ほかは `/api/room/remove`・`/api/room/passphrase`・`/api/room/end`。出した人は `roomBans`（この予約の間だけ。`closeReservedRoom` で消す）。
+  早めに終えると予約の行の `end_at` をその時刻に書き換える。`PlayerView.host`・`ChatMessage.host`（予約部屋のメモリのチャットだけ）で「［主催］」「主催」。画面は `components/RoomAdmin.tsx` の `RoomAdminDialog`。
+- **時計と残り時間**（途中のユーザー指定。DESIGN §14.7）：`RoomClock`（1 秒ごと。`formatRemaining`・`remainLevel`（10 分で warn・5 分で urgent））。時刻は `client.serverNow()`。
+  サーバは `pong` に `serverNow` を付け、クライアントは ping を送った時刻と受け取った時刻の真ん中で差を出す（`estimateOffset`。つないで 1.5 秒後にも 1 回）。
+  PC は上のバー（予約部屋のとき。部屋名の札は短くして 1 行に収めた）、スマホは見出し（縦は 📺 の代わり・横は部屋名の札を出さない・たたんだ帯は 2 行）。
+- **確認の道具の Edge**（2026-10-26）：ヘッドレスでも BGM が PC のスピーカーから鳴ったので、`scripts/dev` の Edge はすべて `--mute-audio` で起動し、終わり・失敗・Ctrl+C で必ず閉じる（`process.on('exit')` で kill）。
+
 ## 今後の課題
+
+- **v0.5.0 でユーザーに確かめること**：DESIGN の末尾の表（Y1 見分け方・Y2 扉とカレンダーの置き場所・Y3 新しく開いたときは入店の画面・Y4 移るとピン止めが外れる・Y5 予約の案内・Y6 回数制限・Y7 PC の入り口・
+  Y8 主催者の印・Y9 主催者が出した人・Y10 時計の場所）、
+  扉・カレンダーの絵、予約表の使い勝手（PC・スマホ）。予約部屋の通報・ブロックは無い（管理者の削除・退室・取り消しはある）。合言葉を忘れた人の救済は無い（予約した人が取り消して取り直す）。
+- 予約部屋の中身はメモリだけなので、予約の途中でサーバを再起動するとチャット・筐体が消え、合言葉を入れた人は入れ直しになる（予約そのものは DB に残る）。
 
 - **v0.3.0 でユーザーに確かめること**：DESIGN の末尾の表（C1 遠くからのクリック・C2 バッジの集め方・C3 残し方・C4 確率と待ち時間・P1 開始の日時を必須・P2 URL・P3 書ける人と枚数）、
   ミニゲームの操作感と見た目・効果音、掲示板の大きさと置き場所、ピン止めの吹き出しの見た目。
@@ -298,6 +359,18 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   DESIGN の末尾の表（M1 切り替えの幅・M2 既定の倍率と戻るまで・M3 横向きのチャット・M4 近くの配信・N1 ノートの置き場所・N2 ノートの案内・R1 要望箱の置き場所）、ノートの見た目（罫線・字）。
 - 筐体の箱は高いので、その奥の床は画面の上で箱と重なり、タップ・クリックでは筐体が開く（PC はキーボード、スマホは長押しで行ける）。
 - 店内の人数が多いと名前・吹き出しが重なる（重なりの調整はしていない）。
+
+## 確認したこと（v0.5.0）
+
+- `npm run build`・`npm test`（241 件：shared の rooms.test.ts 15 件・server の v05.test.ts 16 件を足した）・`npm run package`（SHA-256 `1083a0be8ed8fbff0f81c72593d77815e675a1aadcd06164275fe69095220d32`）が通る。
+  展開した tar を `BASE_PATH=/arcade`・別ポートで起動し、`/arcade/api/meta`（版 0.5.0・onlineByRoom）・`/arcade/api/reservations` を確かめた。
+- テスト：重なり・30 分の枠・5 時間（1 つでもあわせても）・14 日・1 人の合計と取り消し・合言葉（間違いの回数制限を鍵ごと・IP ごと、ハッシュを返さない）・予約した人と管理者は合言葉なし・
+  閉まっている部屋・入店の画面から入る（hello の room）・古いクライアント・10 分前と 5 分前・終わりで全員戻して消す・続けての予約に前のチャットが残らない・取り消し・
+  部屋ごとのチャット・エモーション・筐体・人数と、店全体のノート・ポスター・バッジ・主催者の力（印・発言とお知らせ・筐体・出す・合言葉・早めに終える・時間切れ・オープン部屋ではできない・サイトの管理の操作はできない・合言葉で入った人はできない）・残り時間の表示と時計の差。
+- 画面（別ポート 8797・一時 DB）：オープン部屋の PC の前後（上のバー・下のバー・チャットの欄は同じ。変わったのは扉・予約カレンダー・その札だけ）・予約表（PC 7 日・スマホ 1 日）・予約の形・
+  合言葉の窓（PC・入店の画面からスマホ）・入店の画面から合言葉で予約部屋へ入る・予約部屋（PC・スマホ）・閉まっているとき・時計（PC・スマホ縦・横・たたんだ横、残り 5 分の赤）・部屋の管理の窓。
+- CDP の確認（Edge は `--mute-audio`）：keyboard-check NG 0（予約の形・合言葉の欄を足した）・note-check NG 0・touch-check NG 0・reach-check 縦 NG 0・横 NG 0（最後の回）。
+  ただし reach-check は 0.4.1 のときと同じく回によって「筐体の陰の床をタップすると筐体が開く」「チャットの欄の上のタップで店内が動かない」が NG になることがある（今回も途中の回で出た。0.4.1 から続く揺れ）。
 
 ## 確認したこと（v0.4.1）
 

@@ -11,11 +11,11 @@
 | `example.com` | 既存のサイトのドメイン（TLS = https はすでに動いている前提） |
 | `/arcade/` | 置くパス（`BASE_PATH=/arcade`。別のパスにするなら、ユニット・Apache の設定・下の確認の URL をそろえて直す） |
 | `8791` | アプリが待ち受けるポート（127.0.0.1 だけ。空いていれば何番でもよい。ユニットの `PORT` と Apache の設定をそろえる） |
-| `0.4.1` | 版（`package.json` の `version`） |
+| `0.5.0` | 版（`package.json` の `version`） |
 
 ## 0. 何を置くか
 
-- `virtual-arcade-<版>.tar.gz`（例 `virtual-arcade-0.4.1.tar.gz`。作り方は手元の PC で `npm run package`）。中身はそのまま動く形にしてある:
+- `virtual-arcade-<版>.tar.gz`（例 `virtual-arcade-0.5.0.tar.gz`。作り方は手元の PC で `npm run package`）。中身はそのまま動く形にしてある:
   `server.js`（起動用。Node の版を確かめる）・`lib/app.js`（サーバ本体を 1 ファイルにまとめたもの。店のレイアウトも中に入っている）・
   `public/`（画面）・`data/bgm/`（店内の BGM の曲と一覧。置いたときだけ）・`tools/hash-admin.mjs`（管理者の合言葉のハッシュを作る）・`deploy/`（この文書・systemd・Apache の設定）。
   **`npm install` も `tsx` も要らない**。
@@ -97,18 +97,18 @@ sudo install -d -o virtual-arcade -g virtual-arcade -m 0750 /var/lib/virtual-arc
 
 ## 5. tar を送って確かめて置く
 
-ユーザーが PC から tar を送る（scp・WinSCP など）。**送り先は自分のホーム**（例 `~/virtual-arcade-0.4.1.tar.gz`）にしてもらい、そこから置く。
-PC 側のファイル: リポジトリの `release/virtual-arcade-0.4.1.tar.gz`（作り方 `npm run package`。
-同じフォルダの `.sha256` に値がある。PowerShell なら `Get-FileHash release\virtual-arcade-0.4.1.tar.gz -Algorithm SHA256`）。
+ユーザーが PC から tar を送る（scp・WinSCP など）。**送り先は自分のホーム**（例 `~/virtual-arcade-0.5.0.tar.gz`）にしてもらい、そこから置く。
+PC 側のファイル: リポジトリの `release/virtual-arcade-0.5.0.tar.gz`（作り方 `npm run package`。
+同じフォルダの `.sha256` に値がある。PowerShell なら `Get-FileHash release\virtual-arcade-0.5.0.tar.gz -Algorithm SHA256`）。
 
 ```bash
 ls -l ~/virtual-arcade-*.tar.gz
 sha256sum ~/virtual-arcade-*.tar.gz                 # ユーザーが PC で出した値と同じか確かめる（違えば止める）
-tar -tzf ~/virtual-arcade-0.4.1.tar.gz | head -20   # virtual-arcade-0.4.1/server.js などが並ぶこと（../ や / で始まる名前が無いこと）
-sudo tar -xzf ~/virtual-arcade-0.4.1.tar.gz -C /opt/virtual-arcade/releases --no-same-owner
-sudo chown -R root:root /opt/virtual-arcade/releases/virtual-arcade-0.4.1
-sudo chmod -R u=rwX,go=rX /opt/virtual-arcade/releases/virtual-arcade-0.4.1
-sudo ln -sfn /opt/virtual-arcade/releases/virtual-arcade-0.4.1 /opt/virtual-arcade/current
+tar -tzf ~/virtual-arcade-0.5.0.tar.gz | head -20   # virtual-arcade-0.5.0/server.js などが並ぶこと（../ や / で始まる名前が無いこと）
+sudo tar -xzf ~/virtual-arcade-0.5.0.tar.gz -C /opt/virtual-arcade/releases --no-same-owner
+sudo chown -R root:root /opt/virtual-arcade/releases/virtual-arcade-0.5.0
+sudo chmod -R u=rwX,go=rX /opt/virtual-arcade/releases/virtual-arcade-0.5.0
+sudo ln -sfn /opt/virtual-arcade/releases/virtual-arcade-0.5.0 /opt/virtual-arcade/current
 ls -l /opt/virtual-arcade/current/
 ```
 
@@ -123,7 +123,7 @@ sudo -u virtual-arcade env HOST=127.0.0.1 PORT=8791 BASE_PATH=/arcade DB_PATH=/t
 sleep 2
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8791/arcade/            # 200
 curl -s http://127.0.0.1:8791/arcade/ | grep -o '<base href="/arcade/" />'         # <base href="/arcade/" /> が出る
-curl -s http://127.0.0.1:8791/arcade/api/meta; echo                                # {"version":"0.4.1","maxPlayers":50,"online":0, …
+curl -s http://127.0.0.1:8791/arcade/api/meta; echo                                # {"version":"0.5.0","maxPlayers":50,"online":0, …
 curl -s -o /dev/null -w '%{http_code}\n' -m 3 --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://127.0.0.1:8791/arcade/ws   # 101
 curl -s -o /dev/null -w '%{http_code}\n' -m 3 --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
@@ -217,7 +217,7 @@ sudo rm -rf /tmp/va-check
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://example.com/arcade/                 # 200
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://example.com/arcade   # 301 https://example.com/arcade/
-curl -s https://example.com/arcade/api/meta; echo                                     # {"version":"0.4.1", …}
+curl -s https://example.com/arcade/api/meta; echo                                     # {"version":"0.5.0", …}
 curl -s -o /dev/null -w '%{http_code}\n' -m 3 --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' https://example.com/arcade/ws   # 101
 curl -s -o /dev/null -w '%{http_code}\n' https://example.com/arcadex                  # 中継されない（既存のサイトの 404 など。8791 の応答でないこと）
@@ -233,7 +233,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://example.com/arcadex            
 ## 10. 更新（新しい版を入れる）
 
 ```bash
-# 手順 5 と同じように tar を送って SHA-256 を確かめ、releases/ に展開する（例 0.4.2）
+# 手順 5 と同じように tar を送って SHA-256 を確かめ、releases/ に展開する（例 0.5.1）
 sudo tar -xzf ~/virtual-arcade-0.4.2.tar.gz -C /opt/virtual-arcade/releases --no-same-owner
 sudo chown -R root:root /opt/virtual-arcade/releases/virtual-arcade-0.4.2
 sudo ln -sfn /opt/virtual-arcade/releases/virtual-arcade-0.4.2 /opt/virtual-arcade/current
@@ -272,6 +272,10 @@ sudo rm -rf /opt/virtual-arcade /var/lib/virtual-arcade /etc/virtual-arcade && s
   ノートと要望箱のために、起動時に DB へ `notes` と `requests` の表を**足すだけ**（消す・変える表・列はない）。前の版へ戻しても、前の版はこれらの表を使わないだけで動く
   （書かれたノート・届いた要望は前の版では見えず、0.4.0 に戻すとまた見える）。
 - 0.4.1（スマホでキーボードが出ると縦横のレイアウトが切り替わり、発言の欄のキーボードがすぐ閉じていたのを直した）：**画面だけの修正、DB 変更なし**。前の版へそのまま戻せる。
+- 0.5.0（オープン部屋と予約部屋。DESIGN §14）：起動時に DB へ `reservations` の表を**足すだけ**（消す・変える表・列はない。予約部屋のチャット・お知らせ・筐体は DB に書かずメモリだけ）。
+  **0.4.x へ戻しても、0.4.x はこの表を読まないだけでそのまま動く**（予約部屋は無くなり、入った予約は見えなくなる。0.5.0 に戻すと、まだ終わっていない予約はまた見える）。
+  WebSocket の取り決めが変わったので、0.5.0 に上げた直後は、開いたままの古いページに「新しい版になりました。ページを再読み込みしてください」が出る（再読み込みで直る）。
+  戻したときは逆に 0.5.0 のページが古い版のサーバにつながるが、前の版の形のまま入れる（部屋の情報が来ないだけ）。再読み込みをすすめる。
 - どの版もユニット・Apache の設定は変わらない。
 
 ## 12. ログと運用
@@ -296,6 +300,10 @@ sudo rm -rf /opt/virtual-arcade /var/lib/virtual-arcade /etc/virtual-arcade && s
   API 全体 1 分に 600 回。同じ人のエモーションは 0.8 秒に 1 回・20 秒に 8 回、筐体の操作は 1 分に 20 回、移動の指示は 1 秒に 10 回まで。
   JSON は 16 KB まで、WebSocket の 1 通は 4 KB まで（1 本から 10 秒に 80 通を超えたら切る）。
 - 来た人の記録（名前・見た目・最後の位置）は、最後に来てから 180 日で消える（入室を止めている人は残す）。
+- **予約部屋**（0.5.0〜）: 予約は DB の `reservations` の表（合言葉は scrypt のハッシュだけ。終わってから 30 日・2000 行を超えた古い行は消す）。
+  予約部屋のチャット・お知らせ・筐体・クレーンゲームは**メモリだけ**で、予約の時間が終わると中の人をオープン部屋へ戻して消す（サーバの再起動でも消え、合言葉を入れた人も入れ直しになる）。
+  回数制限: 予約は鍵ごと 1 時間に 6 回・IP ごと 12 回、合言葉の**間違い**は鍵ごと 10 分に 5 回・IP ごと 20 回。1 人の予約はあわせて 5 時間まで・14 日先まで。
+  管理者は管理者の窓の「🔑 予約」タブでどの予約も取り消せる（使っている最中なら予約部屋はすぐ閉まる）。
 - バックアップ（任意）: `sudo systemctl stop virtual-arcade` → `sudo cp -a /var/lib/virtual-arcade /var/lib/virtual-arcade.bak-$(date +%F)` → `sudo systemctl start virtual-arcade`
   （止めずに写すと `-wal` との食い違いが起きることがあるので、止めてから）。
 - メモリ: `MemoryMax=256M`（超えたら systemd が止めて 3 秒後に立ち上げ直す）。Node のヒープは 128 MiB。
