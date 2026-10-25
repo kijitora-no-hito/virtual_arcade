@@ -235,9 +235,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://example.com/arcadex            
 
 ```bash
 # 手順 5 と同じように tar を送って SHA-256 を確かめ、releases/ に展開する（例 0.5.1）
-sudo tar -xzf ~/virtual-arcade-0.4.2.tar.gz -C /opt/virtual-arcade/releases --no-same-owner
-sudo chown -R root:root /opt/virtual-arcade/releases/virtual-arcade-0.4.2
-sudo ln -sfn /opt/virtual-arcade/releases/virtual-arcade-0.4.2 /opt/virtual-arcade/current
+sudo tar -xzf ~/virtual-arcade-0.5.1.tar.gz -C /opt/virtual-arcade/releases --no-same-owner
+sudo chown -R root:root /opt/virtual-arcade/releases/virtual-arcade-0.5.1
+sudo ln -sfn /opt/virtual-arcade/releases/virtual-arcade-0.5.1 /opt/virtual-arcade/current
 sudo systemctl restart virtual-arcade              # 筐体・チャット・名前は DB に残る。画面は自動で再接続する
 journalctl -u virtual-arcade -n 5 --no-pager
 ```
