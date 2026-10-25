@@ -1,0 +1,29 @@
+node_modules/
+dist/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+*.log
+.vite/
+coverage/
+release/
+# 店内の BGM：元の mp3（bgm/。確認用の WAV bgm/_loop_preview/ も）と加工した ogg は入れない（素材の規約で曲単体の再配布は禁止。
+# 公開リポジトリには絶対に入れない）。曲の一覧 bgm.json・ループ点 loops.json も曲の名前が入るので入れない。
+# 入れるのは説明 data/bgm/README.md と一覧の例 data/bgm/bgm.example.json だけ
+/bgm/
+data/bgm/*
+!data/bgm/README.md
+!data/bgm/bgm.example.json
+tools/bgm/loops.json
+*.mp3
+*.ogg
+*.wav
+*.m4a
+# この PC・自分のサーバだけのメモと手順書（公開しない）
+CLAUDE.local.md
+deploy/INSTRUCTIONS.*.md
+deploy/*.local.*
+__pycache__/

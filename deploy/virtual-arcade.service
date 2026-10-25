@@ -1,0 +1,70 @@
+# バーチャルゲームセンター（例 https://example.com/arcade/）の systemd のユニット。
+# 置き場所: /etc/systemd/system/virtual-arcade.service
+# 前提: 専用ユーザー virtual-arcade、アプリは /opt/virtual-arcade/current（releases/ の版への symlink）、
+#       Node は /opt/virtual-arcade/node（専用。既存の Node は使わない・変えない）、DB は /var/lib/virtual-arcade（INSTRUCTIONS.md）。
+# 外からは直接つながない（127.0.0.1 だけで待ち受け、Apache が TLS を終えて /arcade/ と /arcade/ws を中継する）。
+
+[Unit]
+Description=Virtual Arcade (/arcade)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=virtual-arcade
+Group=virtual-arcade
+WorkingDirectory=/opt/virtual-arcade/current
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8791
+Environment=BASE_PATH=/arcade
+Environment=DB_PATH=/var/lib/virtual-arcade/virtual_arcade.db
+# 同時に店内にいられる人数・筐体が最後の更新から自動で空きに戻るまでの時間（既定のまま書いてある）
+Environment=MAX_PLAYERS=50
+Environment=CABINET_TTL_HOURS=6
+# X-Forwarded-For は直前が 127.0.0.1（= Apache）のときだけ、その 1 段だけ信頼する
+Environment=TRUST_PROXY=loopback
+# 管理者の合言葉のハッシュ（ADMIN_PASS_HASH=scrypt:…）はユニットに書かず、root だけが読めるファイルに置く（INSTRUCTIONS.md 手順 7）。
+# ファイルが無ければ管理者なしで動く（先頭の - = 無くてもよい）
+EnvironmentFile=-/etc/virtual-arcade/admin.env
+# ヒープは 128 MiB まで（同居のサイトがあるので）
+ExecStart=/opt/virtual-arcade/node/bin/node --max-old-space-size=128 /opt/virtual-arcade/current/server.js
+Restart=always
+RestartSec=3
+# 常駐は 100 MB 前後の見込み。超えたら systemd が止めて（Restart で）立ち上げ直す。
+MemoryMax=256M
+MemoryHigh=200M
+TasksMax=64
+# ログは journald（起動・停止・内部エラーの内容だけ。IP アドレス・秘密鍵・チャットは出さない）。
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=virtual-arcade
+# 守り
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+# 書けるのは DB の置き場所だけ（/var/lib/virtual-arcade。無ければ systemd が virtual-arcade の持ち物で作る）
+StateDirectory=virtual-arcade
+StateDirectoryMode=0750
+ReadOnlyPaths=/opt/virtual-arcade
+# （MemoryDenyWriteExecute は Node の JIT が動かなくなるので付けない）
+
+[Install]
+WantedBy=multi-user.target

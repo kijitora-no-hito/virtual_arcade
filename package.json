@@ -1,0 +1,30 @@
+{
+  "name": "virtual-arcade",
+  "version": "0.4.0",
+  "private": true,
+  "license": "MIT",
+  "description": "バーチャルゲームセンター - クオータービューの店内を歩き、筐体に YouTube の配信と宣伝を置ける Web アプリ",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "build": "npm run typecheck && npm run build -w client",
+    "typecheck": "tsc -p shared --noEmit && tsc -p server --noEmit && tsc -p client --noEmit",
+    "test": "vitest run",
+    "start": "npm run start -w server",
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "hash-admin": "node scripts/hash-admin.mjs",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

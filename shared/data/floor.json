@@ -1,0 +1,48 @@
+{
+  "$comment": "店のレイアウト。座標はタイル（x = 右下へ、y = 左下へ）。奥の壁は x = 0 の辺（左奥）と y = 0 の辺（右奥）。face は筐体の画面の向き（S = +y 左手前、E = +x 右手前）。decor の crane はどれも遊べるクレーンゲーム（番号は decor の中の並び順）。board はポスターの掲示板（壁の上の範囲。入口・大画面と重ならないこと）。decor の note はコミュニケーションノートの机、requestbox は機能追加要望箱（v0.4.0）。変えたら npm run build（クライアントとサーバの両方に入る）。",
+  "name": "バーチャルゲームセンター 1F",
+  "cols": 22,
+  "rows": 16,
+  "entrance": { "wall": "left", "from": 12, "to": 14 },
+  "spawn": [
+    { "x": 1, "y": 12 }, { "x": 1, "y": 13 }, { "x": 2, "y": 12 }, { "x": 2, "y": 13 },
+    { "x": 3, "y": 12 }, { "x": 3, "y": 13 }, { "x": 2, "y": 14 }, { "x": 3, "y": 14 }
+  ],
+  "screen": { "wall": "right", "from": 5, "to": 15 },
+  "board": { "wall": "left", "from": 6, "to": 12 },
+  "cabinets": [
+    { "id": 1, "x": 3, "y": 4, "face": "S", "color": "#ff3df0" },
+    { "id": 2, "x": 4, "y": 4, "face": "S", "color": "#22e6ff" },
+    { "id": 3, "x": 5, "y": 4, "face": "S", "color": "#ffe14d" },
+    { "id": 4, "x": 6, "y": 4, "face": "S", "color": "#7cff6b" },
+    { "id": 5, "x": 10, "y": 4, "face": "S", "color": "#ff8a3d" },
+    { "id": 6, "x": 11, "y": 4, "face": "S", "color": "#b07cff" },
+    { "id": 7, "x": 12, "y": 4, "face": "S", "color": "#ff3d6e" },
+    { "id": 8, "x": 13, "y": 4, "face": "S", "color": "#3dffd0" },
+    { "id": 9, "x": 3, "y": 9, "face": "S", "color": "#22e6ff" },
+    { "id": 10, "x": 4, "y": 9, "face": "S", "color": "#ff3df0" },
+    { "id": 11, "x": 5, "y": 9, "face": "S", "color": "#7cff6b" },
+    { "id": 12, "x": 6, "y": 9, "face": "S", "color": "#ffe14d" },
+    { "id": 13, "x": 10, "y": 9, "face": "S", "color": "#b07cff" },
+    { "id": 14, "x": 11, "y": 9, "face": "S", "color": "#ff8a3d" },
+    { "id": 15, "x": 12, "y": 9, "face": "S", "color": "#3dffd0" },
+    { "id": 16, "x": 13, "y": 9, "face": "S", "color": "#ff3d6e" }
+  ],
+  "decor": [
+    { "type": "vending", "x": 17, "y": 0 },
+    { "type": "vending", "x": 18, "y": 0 },
+    { "type": "crane", "x": 20, "y": 0 },
+    { "type": "crane", "x": 21, "y": 0 },
+    { "type": "plant", "x": 0, "y": 0 },
+    { "type": "plant", "x": 0, "y": 5 },
+    { "type": "plant", "x": 21, "y": 6 },
+    { "type": "bench", "x": 17, "y": 9 },
+    { "type": "bench", "x": 18, "y": 9 },
+    { "type": "bench", "x": 19, "y": 9 },
+    { "type": "bench", "x": 17, "y": 13 },
+    { "type": "bench", "x": 18, "y": 13 },
+    { "type": "bench", "x": 19, "y": 13 },
+    { "type": "note", "x": 1, "y": 10 },
+    { "type": "requestbox", "x": 21, "y": 11 }
+  ]
+}

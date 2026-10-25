@@ -1,0 +1,122 @@
+// 店のレイアウト（data/floor.json）と、通れるマスの格子。
+
+import floorJson from '../data/floor.json';
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/** 筐体の画面の向き。S = +y（左手前の面）、E = +x（右手前の面） */
+export type Face = 'S' | 'E';
+
+export interface CabinetSpot {
+  id: number;
+  x: number;
+  y: number;
+  face: Face;
+  /** 看板（マーキー）の色 */
+  color: string;
+}
+
+/** note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13） */
+export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox';
+
+export interface Decor {
+  type: DecorType;
+  x: number;
+  y: number;
+}
+
+/** 奥の壁の上の範囲（left = x = 0 の辺、right = y = 0 の辺。from..to はその辺に沿ったタイルの番号、to は含まない） */
+export interface WallSpan {
+  wall: 'left' | 'right';
+  from: number;
+  to: number;
+}
+
+export interface FloorJson {
+  name: string;
+  cols: number;
+  rows: number;
+  entrance: WallSpan;
+  spawn: Point[];
+  screen: WallSpan;
+  /** ポスターの掲示板（DESIGN §9） */
+  board: WallSpan;
+  cabinets: CabinetSpot[];
+  decor: Decor[];
+}
+
+export interface Floor extends FloorJson {
+  /** 通れるか（[y][x]） */
+  passable: boolean[][];
+}
+
+const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox'];
+
+const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+
+/** 筐体の前のマス（座って遊ぶ所・近づいて使う所） */
+export const frontTile = (c: { x: number; y: number; face: Face }): Point =>
+  c.face === 'S' ? { x: c.x, y: c.y + 1 } : { x: c.x + 1, y: c.y };
+
+export const inBounds = (f: { cols: number; rows: number }, x: number, y: number): boolean =>
+  isInt(x) && isInt(y) && x >= 0 && y >= 0 && x < f.cols && y < f.rows;
+
+/** 通れるマスか（範囲外・筐体・飾りは通れない） */
+export const isPassable = (f: Floor, x: number, y: number): boolean => inBounds(f, x, y) && f.passable[y][x];
+
+/** レイアウトを確かめて、通れるマスの格子を作る。おかしければ投げる */
+export const loadFloor = (j: FloorJson): Floor => {
+  if (!isInt(j.cols) || !isInt(j.rows) || j.cols < 4 || j.rows < 4 || j.cols > 64 || j.rows > 64)
+    throw new Error('floor: cols / rows が不正です');
+  const passable = Array.from({ length: j.rows }, () => Array.from({ length: j.cols }, () => true));
+  const block = (x: number, y: number, what: string) => {
+    if (!inBounds(j, x, y)) throw new Error(`floor: ${what} (${x},${y}) が範囲外です`);
+    if (!passable[y][x]) throw new Error(`floor: ${what} (${x},${y}) がほかの物と重なっています`);
+    passable[y][x] = false;
+  };
+  const ids = new Set<number>();
+  for (const c of j.cabinets) {
+    if (!isInt(c.id) || c.id < 1 || ids.has(c.id)) throw new Error(`floor: 筐体の id ${c.id} が不正です`);
+    if (c.face !== 'S' && c.face !== 'E') throw new Error(`floor: 筐体 ${c.id} の face が不正です`);
+    ids.add(c.id);
+    block(c.x, c.y, `筐体 ${c.id}`);
+  }
+  for (const d of j.decor) {
+    if (!DECOR_TYPES.includes(d.type)) throw new Error(`floor: 飾りの type ${d.type} が不正です`);
+    block(d.x, d.y, d.type);
+  }
+  for (const c of j.cabinets) {
+    const f = frontTile(c);
+    if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: 筐体 ${c.id} の前のマスが通れません`);
+  }
+  if (!j.spawn.length) throw new Error('floor: spawn がありません');
+  for (const s of j.spawn)
+    if (!inBounds(j, s.x, s.y) || !passable[s.y][s.x]) throw new Error(`floor: spawn (${s.x},${s.y}) が通れません`);
+  if (!j.board) throw new Error('floor: board がありません');
+  for (const w of [j.entrance, j.screen, j.board]) {
+    const len = w.wall === 'left' ? j.rows : j.cols;
+    if ((w.wall !== 'left' && w.wall !== 'right') || !isInt(w.from) || !isInt(w.to) || w.from < 0 || w.to > len || w.from >= w.to)
+      throw new Error('floor: entrance / screen / board の範囲が不正です');
+  }
+  // 同じ壁の上で重ならないこと（入口・大画面・掲示板）
+  const spans = [j.entrance, j.screen, j.board];
+  for (let a = 0; a < spans.length; a++)
+    for (let b = a + 1; b < spans.length; b++) {
+      const A = spans[a];
+      const B = spans[b];
+      if (A.wall === B.wall && A.from < B.to && B.from < A.to) throw new Error('floor: entrance / screen / board が壁の上で重なっています');
+    }
+  return { ...j, passable };
+};
+
+/** この店のレイアウト（ビルド時に data/floor.json を取り込む） */
+export const FLOOR: Floor = loadFloor(floorJson as FloorJson);
+
+export const cabinetSpot = (id: number, f: Floor = FLOOR): CabinetSpot | undefined => f.cabinets.find((c) => c.id === id);
+
+/** マス p と筐体の距離（チェビシェフ距離。斜めも 1） */
+export const cabinetDistance = (p: Point, c: { x: number; y: number }): number =>
+  Math.max(Math.abs(p.x - c.x), Math.abs(p.y - c.y));
