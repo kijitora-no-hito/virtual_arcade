@@ -2820,21 +2820,6 @@ input[type='datetime-local'] {
 .m-folded .m-room-pill {
   display: none;
 }
-.room-reserved .topbar-mid {
-  flex-wrap: nowrap;
-  min-width: 0;
-}
-.room-reserved .topbar-mid .pill-info,
-.room-reserved .topbar-mid button {
-  white-space: nowrap;
-  flex: none;
-}
-.room-reserved .topbar-mid .room-pill {
-  flex: 0 1 auto;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* 横向き（右の欄 300px）：部屋名は店内の上の帯にあるので、見出しは時計だけ */
 .m-land .m-room-pill {
   display: none;
@@ -2842,4 +2827,195 @@ input[type='datetime-local'] {
 .m-land .room-clock.compact {
   font-size: 12px;
   padding: 2px 6px;
+}
+
+/* ---- v0.5.1：PC の上のバー・下のバーを、狭い幅・ブラウザの拡大でも重ならないように（1920×1080 の見た目は 0.5.0 と同じ）。
+   上のバーの幅は「画面の幅 − 右の欄 400px」なので、しきい値は画面の幅で書く。項目は縮むと「…」で省略し、title で全文を出す */
+.topbar {
+  min-width: 0;
+}
+.logo {
+  flex: none;
+  white-space: nowrap;
+}
+.topbar-mid {
+  min-width: 0;
+  overflow: hidden;
+}
+.topbar-mid .pill-info {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-right {
+  flex: none;
+  max-width: 100%;
+}
+.topbar-right > button {
+  flex: none;
+  white-space: nowrap;
+}
+.me-button {
+  max-width: 100%;
+  white-space: nowrap;
+}
+.me-name {
+  display: inline-block;
+  vertical-align: top;
+  max-width: 20em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.me-button .badges,
+.me-look {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 予約部屋：部屋の札・時計・部屋の管理・オープン部屋へは、上のバーの下の帯に分ける（上のバーはオープン部屋と同じ） */
+/* スマホ（.m-arcade）は別の並びなので入れない */
+.arcade.room-reserved:not(.m-arcade) {
+  grid-template-rows: 54px 40px minmax(0, 1fr);
+  grid-template-areas:
+    'top side'
+    'room side'
+    'stage side';
+}
+.roombar {
+  grid-area: room;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #2b1d05, #140d03);
+  border-bottom: 1px solid #8f5a12;
+}
+.roombar .room-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #ffe9c2;
+}
+.roombar .room-clock {
+  flex: none;
+}
+.roombar-gap {
+  flex: 1 1 0;
+}
+.roombar > button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.stage {
+  /* 列を内容の幅で広げない（狭い画面で下のバーが右の欄の下にもぐっていた） */
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+/* 下のバー：エモーションの見出しは 1 行。操作の説明は 1 行ずつ省略し、狭い画面では隠す */
+.emotes {
+  flex: none;
+}
+.emotes > .muted {
+  white-space: nowrap;
+}
+.bottombar .bgm-unlock {
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.help {
+  min-width: 0;
+  /* 縮めるときは説明から（BGM・エモーションより先に） */
+  flex: 0 100 auto;
+}
+.help > div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1599px) {
+  .me-name {
+    max-width: 10em;
+  }
+  .me-look {
+    display: none;
+  }
+}
+@media (max-width: 1439px) {
+  .logo-sub {
+    display: none;
+  }
+}
+/* 操作の説明：1500 以上は 3 行の全文、それより狭いと 2 行の短い版、1300 より狭いと出さない（全文はどれも title に） */
+.help-short {
+  display: none;
+}
+@media (max-width: 1499px) {
+  .help {
+    display: none;
+  }
+  .help.help-short {
+    display: block;
+    font-size: 12.5px;
+  }
+}
+@media (max-width: 1299px) {
+  .help.help-short {
+    display: none;
+  }
+}
+@media (max-width: 1279px) {
+  .topbar,
+  .bottombar {
+    gap: 12px;
+    padding: 0 12px;
+  }
+  .roombar {
+    padding: 0 12px;
+  }
+  .me-name {
+    max-width: 7em;
+  }
+}
+@media (max-width: 1099px) {
+  .topbar {
+    gap: 10px;
+  }
+  .logo-main {
+    font-size: 17px;
+  }
+  .me-name {
+    max-width: 4em;
+  }
+  .emotes > .muted {
+    display: none;
+  }
+}
+@media (max-width: 1099px) {
+  .emote {
+    width: 40px;
+    height: 40px;
+    font-size: 21px;
+    border-radius: 10px;
+  }
+  .emotes {
+    gap: 4px;
+  }
+}
+@media (max-width: 1099px) {
+  .topbar-mid .pill-live {
+    display: none;
+  }
 }

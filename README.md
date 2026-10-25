@@ -19,7 +19,7 @@
 
 ---
 
-## バーチャルゲームセンター v0.5.0
+## バーチャルゲームセンター v0.5.1
 
 ブラウザから入れる、クオータービューのバーチャルなゲームセンター。自分のキャラクターを歩かせ、チャットとエモーションでやりとりする。
 ゲームの筐体（16 台）には YouTube の配信 URL と宣伝（イベント名・ゲーム名・プレイヤー名・備考）を設定でき、どこで何が配信されているかが店内を歩いて分かる。
@@ -47,6 +47,7 @@ npm start          # http://127.0.0.1:8791/
   `BADGE_KEEP_MIN`（接続が切れてからバッジ・ピン止めが消えるまで。30）・`POSTER_WHO`（`all` = 全員が貼れる（既定）/ `admin` = 管理者だけ）・
   `POSTER_MAX_PER_USER`（1 人が同時に貼れる枚数。2）・`POSTER_MAX_TOTAL`（店全体の枚数。40）。
   v0.4.0 から：`NOTE_MAX_TOTAL`（ノートに残す件数。2000）・`REQUEST_MAX_TOTAL`（要望を残す件数。1000）。
+  v0.5.1 から：`CHAT_TTL_HOURS`（チャットの発言を残す時間。24。過ぎた発言は DB からも開いている画面からも消える）。
   `BASE_PATH` はビルドし直さずに変えられます（サーバが index.html に `<base href>` を差し込む）。
 - PowerShell では `$env:BASE_PATH='/arcade'; $env:PORT='8798'; npm start` のように渡す（Git Bash で `BASE_PATH=/arcade` と書くと Windows のパスに書き換えられて起動しない）。
 - 管理者の合言葉: `npm run hash-admin`（合言葉を聞かれる。画面には出ない）で `scrypt:…` の 1 行ができるので、それを `ADMIN_PASS_HASH` に入れて起動する。

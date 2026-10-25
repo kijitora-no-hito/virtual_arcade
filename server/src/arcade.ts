@@ -428,7 +428,7 @@ export class Arcade {
       serverNow: this.now(),
       players: this.inRoom(p.room).map((x) => this.playerView(x)),
       cabinets: r.cabinets.map((c) => this.cabinetView(c)),
-      chat: r.data.recentChat(),
+      chat: this.recentChat(p.room),
       notices: r.data.recentNotices(),
       posters: this.listPosters(),
       maxPlayers: this.cfg.maxPlayers,
@@ -557,6 +557,7 @@ export class Arcade {
   /** 自分の発言を 1 つだけピン止めする（頭上の吹き出しが出しっぱなしになる）。pinned = false で外す */
   pinChat(keyHash: string | null, rawId: unknown, pinned: unknown): PinnedChat | null {
     const p = this.requireOnline(keyHash);
+    this.expireChat(); // 残す時間を過ぎた発言はピン止めできない（掃除の 1 分の間も）
     const id = Number(rawId);
     const row = Number.isInteger(id) ? this.room(p.room).data.getChatRow(id) : undefined;
     if (!row) throw new ArcadeError(404, 'その発言はありません', 'not-found');
@@ -592,8 +593,24 @@ export class Arcade {
     return message;
   }
 
+  /** その部屋の発言（残す時間を過ぎたものは入れない。v0.5.1） */
   recentChat(room: RoomId = 'open'): ChatMessage[] {
-    return this.room(room).data.recentChat();
+    const before = this.now() - this.cfg.chatTtlMs;
+    return this.room(room).data.recentChat().filter((m) => m.at >= before);
+  }
+
+  /**
+   * v0.5.1：残す時間（cfg.chatTtlMs、既定 24 時間）を過ぎた発言を消す（起動時と 1 分ごとの掃除）。
+   * 開いている画面からも消し（chat-delete）、ピン止めも外す。お知らせの行が消えても、お知らせそのもの（大画面の帯・一覧）は消さない
+   */
+  expireChat(): void {
+    const before = this.now() - this.cfg.chatTtlMs;
+    for (const room of ['open', 'reserved'] as const) {
+      for (const id of this.room(room).data.expireChat(before)) {
+        this.hooks.broadcast({ type: 'chat-delete', id }, room);
+        this.unpinDeleted(id);
+      }
+    }
   }
 
   // ---------------------------------------------------------------- 筐体（部屋ごと）
@@ -798,7 +815,7 @@ export class Arcade {
     return { until };
   }
 
-  /** 古い記録の掃除（入室の停止の期限切れ・長く来ていない人・古い予約の行） */
+  /** 古い記録の掃除（入室の停止の期限切れ・長く来ていない人・古い予約の行・残す時間を過ぎた発言） */
   sweep(): void {
     const now = this.now();
     this.store.deleteExpiredBans(now);
@@ -807,6 +824,7 @@ export class Arcade {
     this.expireBadges();
     this.expirePosters();
     this.store.pruneReservations(now, RESERVATION_KEEP_MS, RESERVATION_MAX_ROWS);
+    this.expireChat();
     this.syncSlot();
   }
 

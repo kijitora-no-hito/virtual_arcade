@@ -258,6 +258,17 @@ export class Store {
     return Number(this.db.prepare(`DELETE FROM chat WHERE id = ?`).run(id).changes) > 0;
   }
 
+  /**
+   * v0.5.1：古い発言（at < before）を消して、その id を返す。お知らせの表（notices）には触れない
+   * （お知らせはお知らせの決まりで残す。deleteChat 経由の「お知らせの行を消すと元のお知らせも消す」は通さない）
+   */
+  expireChat(before: number): number[] {
+    const rows = this.db.prepare(`SELECT id FROM chat WHERE at < ? ORDER BY id`).all(before) as unknown as Array<{ id: number }>;
+    if (!rows.length) return [];
+    this.db.prepare(`DELETE FROM chat WHERE at < ?`).run(before);
+    return rows.map((r) => Number(r.id));
+  }
+
   /** 1 件（ピン止めで本人の発言かを確かめる） */
   getChatRow(id: number): { id: number; kind: string; pid: string | null; text: string } | undefined {
     const r = this.db.prepare(`SELECT id, kind, pid, text FROM chat WHERE id = ?`).get(id) as Record<string, unknown> | undefined;

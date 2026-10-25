@@ -98,6 +98,8 @@ export interface Config {
   chatMinIntervalMs: number;
   /** 同じ鍵のエモーションの最短間隔 */
   emoteMinIntervalMs: number;
+  /** v0.5.1：チャットの発言を残す時間（これより古い行は消す。部屋ごと。件数の上限 CHAT_KEEP とは別） */
+  chatTtlMs: number;
   /** 時計（テスト用に差し替える。既定 Date.now） */
   now?: () => number;
 }
@@ -172,5 +174,6 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
     bgmDir: env.BGM_DIR ? path.resolve(env.BGM_DIR) : path.join(ROOT, 'data', 'bgm'),
     chatMinIntervalMs: 1000,
     emoteMinIntervalMs: 800,
+    chatTtlMs: int(env.CHAT_TTL_HOURS, 24, 1, 24 * 365) * 60 * 60 * 1000,
   };
 };

@@ -24,6 +24,8 @@ export interface RoomData {
   addChat(m: ChatRowInput): number;
   recentChat(): ChatMessage[];
   deleteChat(id: number): boolean;
+  /** v0.5.1：古い発言（at < before）を消して id を返す（お知らせは消さない） */
+  expireChat(before: number): number[];
   getChatRow(id: number): { id: number; kind: string; pid: string | null; text: string } | undefined;
   getChatKind(id: number): { kind: string; at: number; text: string } | undefined;
   noticeIdsForChat(c: { at: number; text: string }): number[];
@@ -44,6 +46,7 @@ export const dbRoomData = (store: Store): RoomData => ({
   addChat: (m) => store.addChat(m),
   recentChat: () => store.recentChat(),
   deleteChat: (id) => store.deleteChat(id),
+  expireChat: (before) => store.expireChat(before),
   getChatRow: (id) => store.getChatRow(id),
   getChatKind: (id) => store.getChatKind(id),
   noticeIdsForChat: (c) => store.noticeIdsForChat(c),
@@ -98,6 +101,12 @@ export class MemRoomData implements RoomData {
     const n = this.chat.length;
     this.chat = this.chat.filter((m) => m.id !== id);
     return this.chat.length < n;
+  }
+
+  expireChat(before: number): number[] {
+    const gone = this.chat.filter((m) => m.at < before).map((m) => m.id);
+    if (gone.length) this.chat = this.chat.filter((m) => m.at >= before);
+    return gone;
   }
 
   getChatRow(id: number) {

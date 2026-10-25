@@ -107,6 +107,11 @@ const pendingSpot = (pend: Pending) =>
 const pendingNear = (pend: Pending) => (pend.kind === 'crane' ? CRANE_NEAR : pend.kind === 'door' ? ROOM_OBJECT_NEAR : NOTE_NEAR);
 
 /** 扉の上の札（予約部屋の今と次。v0.5.0） */
+/** PC の下のバーの操作の説明（狭い画面では省略・隠すので、全文を title にも入れる。v0.5.1） */
+const HELP_TEXT =
+  '移動：床をクリック / WASD・矢印キー　筐体：クリックで視聴・使う　大画面：クリックで配信中の一覧　近づく：配信が小さく流れます（音なし）　' +
+  'クレーンゲーム：右奥・クリックで遊ぶ　掲示板：左の壁・大会やイベントの告知';
+
 const doorSignText = (room: RoomId, list: ReservationView[], now: number): { sign: string; open: boolean; banner?: string } => {
   const active = activeReservation(list, now);
   if (room === 'reserved')
@@ -587,7 +592,8 @@ export const ArcadePage = ({
           const d = doorSignText(client.room, client.reservations, sNow);
           ui.doorSign = d.sign;
           ui.doorOpen = d.open;
-          ui.roomBanner = d.banner;
+          // PC は上のバーの下の帯（.roombar）に同じ札を出すので、店内の上の帯はスマホだけ（v0.5.1）
+          ui.roomBanner = L.mobile ? d.banner : undefined;
         }
         const dpr = window.devicePixelRatio || 1;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1228,7 +1234,8 @@ export const ArcadePage = ({
       </div>
     );
 
-  // ---------------------------------------------------------------- PC のレイアウト（v0.3.0 のまま）
+  // ---------------------------------------------------------------- PC のレイアウト（v0.3.0 のまま。v0.5.1 で予約部屋の札・時計・ボタンを上のバーの下の帯に分けた）
+  const roomTitle = activeRes ? `予約部屋「${activeRes.title}」〜${jstTime(activeRes.endAt)}（予約：${activeRes.host}）` : '予約部屋';
   return (
     <div className={`arcade ${room === 'reserved' ? 'room-reserved' : ''}`}>
       <header className="topbar">
@@ -1237,33 +1244,27 @@ export const ArcadePage = ({
           <span className="logo-sub">バーチャルゲームセンター</span>
         </div>
         <div className="topbar-mid">
-          <span className="pill-info">店内 {players.length} / {client.maxPlayers} 人</span>
-          <span className="pill-info">配信中 {liveCount} 台</span>
-          {!client.connected && !fatal && <span className="pill-info warn">再接続しています…</span>}
-          {room === 'reserved' && (
-            <>
-              <span className="pill-info room-pill" title={activeRes ? `予約部屋「${activeRes.title}」〜${jstTime(activeRes.endAt)}（予約：${activeRes.host}）` : '予約部屋'}>
-                🔑「{activeRes?.title ?? '予約部屋'}」
-              </span>
-              {clock?.(false)}
-              {canManage && (
-                <button className="small room-admin-btn" onClick={() => setDialog({ kind: 'roomAdmin' })}>
-                  🛠 部屋の管理
-                </button>
-              )}
-              <button className="small" onClick={() => void leaveReserved()}>
-                🚪 オープン部屋へ
-              </button>
-            </>
+          <span className="pill-info" title={`店内 ${players.length} / ${client.maxPlayers} 人`}>
+            店内 {players.length} / {client.maxPlayers} 人
+          </span>
+          <span className="pill-info pill-live" title={`配信中 ${liveCount} 台`}>
+            配信中 {liveCount} 台
+          </span>
+          {!client.connected && !fatal && (
+            <span className="pill-info warn" title="再接続しています…">
+              再接続しています…
+            </span>
           )}
         </div>
         <div className="topbar-right">
           {you && (
-            <button className="ghost me-button" onClick={onEditProfile} title="名前と見た目を変える">
-              {you.admin && '★ '}
-              {you.name}
+            <button className="ghost me-button" onClick={onEditProfile} title={`${you.admin ? '★ ' : ''}${you.name}${you.badges ? ` ${you.badges}` : ''}：名前と見た目を変える`}>
+              <span className="me-name">
+                {you.admin && '★ '}
+                {you.name}
+              </span>
               <Badges badges={you.badges} />
-              <span className="muted small">　見た目を変える</span>
+              <span className="muted small me-look">　見た目を変える</span>
             </button>
           )}
           {you && (
@@ -1271,12 +1272,29 @@ export const ArcadePage = ({
               退店
             </button>
           )}
-          <button className={you?.admin ? 'admin-on' : 'ghost'} onClick={() => setDialog({ kind: 'admin' })}>
+          <button className={you?.admin ? 'admin-on' : 'ghost'} onClick={() => setDialog({ kind: 'admin' })} title="管理者">
             {you?.admin ? '🔧 管理者' : '管理者'}
             {unread > 0 && <span className="count-badge">{unread}</span>}
           </button>
         </div>
       </header>
+      {room === 'reserved' && (
+        <div className="roombar">
+          <span className="room-pill" title={roomTitle}>
+            🔑 {roomTitle}
+          </span>
+          {clock?.(false)}
+          <span className="roombar-gap" />
+          {canManage && (
+            <button className="small room-admin-btn" onClick={() => setDialog({ kind: 'roomAdmin' })} title="部屋の管理（お知らせ・人・合言葉・早めに終える）">
+              🛠 部屋の管理
+            </button>
+          )}
+          <button className="small" onClick={() => void leaveReserved()} title="オープン部屋へ戻る">
+            🚪 オープン部屋へ
+          </button>
+        </div>
+      )}
 
       <main className="stage">
         {canvasWrap}
@@ -1286,7 +1304,7 @@ export const ArcadePage = ({
             <span className="muted small">エモーション</span>
             {emoteButtons}
           </div>
-          <div className="help">
+          <div className="help" title={HELP_TEXT}>
             <div>
               <b>移動</b> 床をクリック / WASD・矢印キー　<b>筐体</b> クリックで視聴・使う
             </div>
@@ -1295,6 +1313,14 @@ export const ArcadePage = ({
             </div>
             <div>
               <b>クレーンゲーム</b> 右奥・クリックで遊ぶ　<b>掲示板</b> 左の壁・大会やイベントの告知
+            </div>
+          </div>
+          <div className="help help-short" title={HELP_TEXT}>
+            <div>
+              <b>移動</b> 床をクリック / WASD
+            </div>
+            <div>
+              <b>筐体・大画面・物</b> クリック
             </div>
           </div>
         </footer>

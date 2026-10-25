@@ -1,6 +1,6 @@
 {
   "name": "@va/client",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@va/shared": "0.5.0",
+    "@va/shared": "0.5.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
