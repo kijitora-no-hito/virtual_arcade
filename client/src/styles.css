@@ -1158,6 +1158,143 @@ textarea:focus {
 :root:not(.layout-mobile) .game-columns .game-frame iframe {
   height: min(620px, calc(100vh - 210px));
 }
+/* Hextris（v0.6.0。DESIGN §16.9）：地は元の明るい灰色。PC は正方形に近い窓 */
+.game-hextris .game-frame,
+.game-hextris .game-frame iframe {
+  background: #ecf0f1;
+}
+:root:not(.layout-mobile) .modal.game-modal.game-hextris {
+  width: min(760px, calc(100vw - 32px));
+}
+:root:not(.layout-mobile) .game-hextris .game-frame iframe {
+  height: min(640px, calc(100vh - 210px));
+}
+/* 観戦（v0.6.0。DESIGN §16.10）：遊ぶ人の窓の「👀 n 人が見ています」と［観戦を許可］ */
+.spec-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted, #9aa0c0);
+  white-space: nowrap;
+}
+.spec-count.on {
+  color: #7dffe4;
+}
+.spec-allow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.spec-short {
+  display: none;
+}
+.layout-mobile .spec-long {
+  display: none;
+}
+.layout-mobile .spec-short {
+  display: inline;
+}
+.layout-mobile .game-modal .modal-head h2 {
+  font-size: 17px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.layout-mobile .game-modal .modal-head .row-gap {
+  gap: 6px;
+  flex-shrink: 0;
+}
+/* 見る人の窓 */
+.modal.spectate-modal {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+}
+.spectate-info {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.spectate-info strong {
+  font-size: 22px;
+  color: #ffe14d;
+}
+.spectate-view {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b0820;
+}
+.spectate-img {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 260px);
+  object-fit: contain;
+  image-rendering: auto;
+}
+.spectate-wait {
+  padding: 40px;
+}
+.spectate-2048-frame {
+  width: 100%;
+}
+.spectate-2048-frame iframe {
+  height: min(660px, calc(100vh - 230px));
+  pointer-events: none;
+}
+.layout-mobile .modal.spectate-modal {
+  width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  padding: calc(8px + env(safe-area-inset-top)) 10px calc(8px + env(safe-area-inset-bottom));
+}
+.layout-mobile .spectate-view {
+  flex: 1;
+  min-height: 0;
+}
+.layout-mobile .spectate-2048-frame iframe {
+  height: 100%;
+}
+/* だれかが遊んでいる筐体：［遊ぶ］と［見る］ */
+.modal.chooser-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+.chooser-play {
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+.chooser-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chooser-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.chooser-watch {
+  min-height: 40px;
+}
+.rank-self-report {
+  margin: 0 0 6px;
+  color: #ffb3a0;
+}
 .game-practice {
   margin: 0 0 8px;
   padding: 6px 12px;

@@ -5,6 +5,13 @@
 
 import crypto from 'node:crypto';
 import {
+  cleanSpectateInfo,
+  frameBytes,
+  isFrameGame,
+  SPEC_MOVES_RE,
+  SPECTATE_2048_MOVES_MAX,
+  SPECTATE_2048_SYNC_MAX,
+  type SpectateInfo,
   checkGameRecord,
   formatScore,
   GAME_NEAR,
@@ -147,6 +154,19 @@ interface GameSession {
   practice: boolean;
 }
 
+/** v0.6.0：見られている遊ぶ人ごとの中継の状態（観戦。DESIGN §16.10。メモリだけ・保存しない） */
+interface StreamState {
+  /** 2048：手をまとめて受け取ったセッション（null = まだ） */
+  session: string | null;
+  seed: number;
+  /** 2048：今のゲームの手の並び */
+  moves: string;
+  /** 最後に分かった点数・状態（終わりの知らせに添える） */
+  info: SpectateInfo | null;
+  /** 画像を受け取った時刻（1 秒に fps 枚まで） */
+  frameTimes: number[];
+}
+
 /** 部屋ごとの状態（v0.5.0。DESIGN §14）：チャット・お知らせ・筐体・クレーンゲームのケースと待ち時間 */
 interface RoomState {
   id: RoomId;
@@ -205,6 +225,14 @@ export class Arcade {
   private roomBans = new Set<string>();
   /** v0.6.0：始めたゲーム（鍵 → セッション。再起動で消える） */
   private gameSessions = new Map<string, GameSession>();
+  /** v0.6.0：観戦。見る人の鍵 → 見ている遊ぶ人の鍵（1 人 1 つ。メモリだけ） */
+  private spectating = new Map<string, string>();
+  /** 観戦を許可していない人の鍵（窓のスイッチ。再起動で消える） */
+  private noSpectate = new Set<string>();
+  /** 見られている人（見る人が 1 人以上）ごとの中継の状態。数 = 同時に見られている人の数 */
+  private streams = new Map<string, StreamState>();
+  /** 観戦の画像の数（確認・テスト用） */
+  specStats = { framesIn: 0, framesSent: 0, framesDropped: 0, bytesOut: 0 };
 
   constructor(
     private store: Store,
@@ -262,6 +290,8 @@ export class Arcade {
       ...(p.room === 'reserved' && this.isRoomHost(p.keyHash) ? { host: true } : {}),
       ...(p.playing ? { playing: p.playing } : {}),
       ...(p.stance ? { stance: p.stance } : {}),
+      ...(this.viewerCount(p.keyHash) ? { viewers: this.viewerCount(p.keyHash) } : {}),
+      ...(this.noSpectate.has(p.keyHash) ? { noSpectate: true } : {}),
     };
   }
 
@@ -486,6 +516,9 @@ export class Arcade {
    */
   private moveTo(p: Online, to: RoomId, notify: boolean, reason?: string): void {
     if (p.room === to) return;
+    // 観戦は同じ部屋の人だけ（見られている・見ているのを終える）
+    this.endStream(p.keyHash);
+    this.stopSpectating(p.keyHash);
     const from = p.room;
     const now = this.now();
     if (from === 'open') {
@@ -514,6 +547,8 @@ export class Arcade {
   disconnect(keyHash: string): void {
     const p = this.online.get(keyHash);
     if (!p) return;
+    this.endStream(keyHash);
+    this.stopSpectating(keyHash);
     this.online.delete(keyHash);
     const now = this.now();
     const u = this.store.getUser(keyHash);
@@ -563,8 +598,9 @@ export class Arcade {
     p.startedAt = this.now();
     p.watching = null;
     this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: null }, p.room);
-    // 歩いたらゲームの 🎮・ベガ立ちは外す（v0.6.0）
+    // 歩いたらゲームの 🎮・ベガ立ちは外す（v0.6.0）。見られていれば観戦も終わる
     if (p.playing || p.stance) {
+      if (p.playing) this.endStream(p.keyHash);
       p.playing = null;
       p.stance = null;
       this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
@@ -1394,6 +1430,8 @@ export class Arcade {
     const p = this.requireOnline(keyHash);
     const game = raw === null ? null : this.requireGame(raw);
     if (p.playing === game && !(game && p.stance)) return;
+    // 窓を閉じた・別のゲームに替えた：見られていれば観戦は終わる
+    if (p.playing && p.playing !== game) this.endStream(p.keyHash);
     p.playing = game;
     // ゲームを始めたらベガ立ちは外す
     if (game) p.stance = null;
@@ -1420,6 +1458,15 @@ export class Arcade {
       practice: opt.practice,
     };
     this.gameSessions.set(p.keyHash, sess);
+    // 見られていれば、新しいゲームになったことを見る人に知らせる（2048 は遊ぶ人が手をまとめて送り直す）
+    const st = this.streams.get(p.keyHash);
+    if (st) {
+      st.session = null;
+      st.moves = '';
+      st.info = { score: 0, state: 'play' };
+      this.sendViewers(p.keyHash, { type: 'spec-info', pid: p.pid, info: st.info });
+      if (game === '2048') this.hooks.send(p.keyHash, { type: 'spectators', viewers: this.viewerCount(p.keyHash), allow: !this.noSpectate.has(p.keyHash), sync: true });
+    }
     return {
       session: sess.id,
       seed: sess.seed,
@@ -1456,7 +1503,11 @@ export class Arcade {
     const r = checkGameRecord(game, sess.seed, sess.options, body as Record<string, unknown>, ms);
     if (!r.ok)
       throw r.code === 'too-fast'
-        ? new ArcadeError(400, game === '2048' ? '手が速すぎるので、このゲームは記録しませんでした' : '速すぎるので、このゲームは記録しませんでした', 'too-fast')
+        ? new ArcadeError(
+            400,
+            game === '2048' ? '手が速すぎるので、このゲームは記録しませんでした' : game === 'hextris' ? '点数の増え方が速すぎるので、このゲームは記録しませんでした' : '速すぎるので、このゲームは記録しませんでした',
+            'too-fast',
+          )
         : new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
     const n = r.moves;
     const monthStart = jstMonthStart(this.now());
@@ -1534,6 +1585,195 @@ export class Arcade {
     const before = JSON.stringify(this.rankingTop(game));
     this.store.deleteGameScore(id);
     this.broadcastRanking(game, before);
+  }
+
+  // ---------------------------------------------------------------- 観戦（v0.6.0。DESIGN §16.10。同じ部屋の人だけ・サーバは中継だけ）
+
+  private viewersOf(playerKey: string): string[] {
+    const out: string[] = [];
+    for (const [v, t] of this.spectating) if (t === playerKey) out.push(v);
+    return out;
+  }
+
+  /** その人を見ている人数 */
+  viewerCount(playerKey: string): number {
+    let n = 0;
+    for (const t of this.spectating.values()) if (t === playerKey) n++;
+    return n;
+  }
+
+  /** 同時に見られている人の数 */
+  streamCount(): number {
+    return this.streams.size;
+  }
+
+  private sendViewers(playerKey: string, msg: ServerMessage): number {
+    const vs = this.viewersOf(playerKey);
+    for (const v of vs) this.hooks.send(v, msg);
+    return vs.length;
+  }
+
+  /** 遊ぶ人に見ている人数を知らせ、部屋の全員に頭上の人数を配る。sync = 2048 の手をまとめて送ってほしい */
+  private notifyViewers(p: Online, sync = false): void {
+    this.hooks.send(p.keyHash, { type: 'spectators', viewers: this.viewerCount(p.keyHash), allow: !this.noSpectate.has(p.keyHash), ...(sync ? { sync: true } : {}) });
+    this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
+  }
+
+  /** 見る（WebSocket の spectate）。pid = 遊んでいる人（同じ部屋）、null でやめる */
+  spectate(keyHash: string | null, rawPid: unknown): void {
+    const me = this.requireOnline(keyHash);
+    if (rawPid === null) {
+      this.stopSpectating(me.keyHash);
+      return;
+    }
+    if (!this.cfg.spectate.enabled) throw new ArcadeError(403, '観戦は止められています', 'spectate-off');
+    if (typeof rawPid !== 'string') throw new ArcadeError(400, '見る人が正しくありません', 'bad-input');
+    const target = [...this.online.values()].find((x) => x.pid === rawPid);
+    if (!target || target.room !== me.room) throw new ArcadeError(404, 'その人は同じ部屋にいません', 'not-found');
+    if (target.keyHash === me.keyHash) throw new ArcadeError(400, '自分のプレイは見られません', 'self');
+    if (!target.playing) throw new ArcadeError(409, 'その人はいまゲームを遊んでいません', 'not-playing');
+    if (this.noSpectate.has(target.keyHash)) throw new ArcadeError(403, `${target.name} さんは観戦を許可していません`, 'denied');
+    if (this.spectating.get(me.keyHash) === target.keyHash) return;
+    const n = this.viewerCount(target.keyHash);
+    if (n >= this.cfg.spectate.maxViewers)
+      throw new ArcadeError(409, `見ている人が多いので見られません（1 人を見られるのは ${this.cfg.spectate.maxViewers} 人まで）`, 'full');
+    if (n === 0 && this.streams.size >= this.cfg.spectate.maxStreams)
+      throw new ArcadeError(503, '店の中で見られているゲームが多いので、少し待ってから見てください', 'busy');
+    this.stopSpectating(me.keyHash);
+    this.spectating.set(me.keyHash, target.keyHash);
+    let st = this.streams.get(target.keyHash);
+    if (!st) {
+      st = { session: null, seed: 0, moves: '', info: null, frameTimes: [] };
+      this.streams.set(target.keyHash, st);
+    }
+    this.hooks.send(me.keyHash, { type: 'spec-start', pid: target.pid, name: target.name, game: target.playing });
+    let sync = false;
+    if (target.playing === '2048') {
+      // 途中から見る人には、それまでの手をまとめて（まだ受け取っていなければ遊ぶ人に頼む）
+      const sess = this.gameSessions.get(target.keyHash);
+      if (st.session && sess && sess.id === st.session)
+        this.hooks.send(me.keyHash, { type: 'spec-2048', pid: target.pid, reset: true, seed: st.seed, from: 0, moves: st.moves, score: st.info?.score ?? 0 });
+      else sync = true;
+    } else if (st.info) this.hooks.send(me.keyHash, { type: 'spec-info', pid: target.pid, info: st.info });
+    this.notifyViewers(target, sync);
+  }
+
+  /** 見るのをやめる（その人が最後の 1 人なら中継も止める） */
+  private stopSpectating(viewerKey: string): void {
+    const t = this.spectating.get(viewerKey);
+    if (t === undefined) return;
+    this.spectating.delete(viewerKey);
+    if (!this.viewerCount(t)) this.streams.delete(t);
+    const p = this.online.get(t);
+    if (p) this.notifyViewers(p);
+  }
+
+  /** 見られているのを終える（遊ぶ人が閉じた・歩いた・部屋を移った・切れた・許可を切った）。見る人の窓に「〇〇 さんのゲームが終わりました」 */
+  private endStream(playerKey: string, denied = false): void {
+    const vs = this.viewersOf(playerKey);
+    const st = this.streams.get(playerKey);
+    this.streams.delete(playerKey);
+    if (!vs.length) return;
+    const p = this.online.get(playerKey);
+    const name = p?.name ?? '？';
+    const reason = denied ? `${name} さんが観戦の許可を切りました` : `${name} さんのゲームが終わりました`;
+    for (const v of vs) {
+      this.spectating.delete(v);
+      if (p) this.hooks.send(v, { type: 'spec-end', pid: p.pid, name, reason, score: st?.info?.score ?? null });
+    }
+    if (p) this.notifyViewers(p);
+  }
+
+  /** 観戦を許可する・しない（遊ぶ人の窓のスイッチ。既定は許可）。切ったら今見ている人も終わる */
+  allowSpectate(keyHash: string | null, raw: unknown): void {
+    const p = this.requireOnline(keyHash);
+    if (typeof raw !== 'boolean') throw new ArcadeError(400, '形が正しくありません', 'bad-input');
+    if (raw === !this.noSpectate.has(p.keyHash)) return;
+    if (raw) this.noSpectate.delete(p.keyHash);
+    else {
+      this.noSpectate.add(p.keyHash);
+      this.endStream(p.keyHash, true);
+    }
+    this.notifyViewers(p);
+  }
+
+  /** 観戦の中継を受け取ってよいか：遊んでいて・見る人がいて・許可していて・観戦が止められていない */
+  canStream(keyHash: string): boolean {
+    const p = this.online.get(keyHash);
+    return !!p && this.cfg.spectate.enabled && !!p.playing && !this.noSpectate.has(keyHash) && this.viewerCount(keyHash) > 0;
+  }
+
+  /** 遊ぶ人の画像を見る人へ中継する（保存しない）。受け取らなかったら false（見る人がいない・速すぎる・形が違う） */
+  specFrame(keyHash: string, image: unknown, rawInfo: unknown): boolean {
+    this.specStats.framesIn++;
+    const p = this.online.get(keyHash);
+    const st = this.streams.get(keyHash);
+    if (!p || !st || !this.canStream(keyHash) || !isFrameGame(p.playing)) {
+      this.specStats.framesDropped++;
+      return false;
+    }
+    const now = this.now();
+    st.frameTimes = st.frameTimes.filter((t) => t > now - 1000);
+    const bytes = st.frameTimes.length < this.cfg.spectate.fps ? frameBytes(image, this.cfg.spectate.frameMaxBytes) : -1;
+    if (bytes < 0) {
+      this.specStats.framesDropped++;
+      return false;
+    }
+    st.frameTimes.push(now);
+    const info = cleanSpectateInfo(rawInfo);
+    if (info) st.info = info;
+    const n = this.sendViewers(keyHash, { type: 'spec-frame', pid: p.pid, image: image as string, ...(info ? { info } : {}) });
+    this.specStats.framesSent += n;
+    this.specStats.bytesOut += n * bytes;
+    return true;
+  }
+
+  /** 遊ぶ人の状態（ゲームオーバー・一時停止・点数）を見る人へ */
+  specState(keyHash: string, rawInfo: unknown): void {
+    const p = this.online.get(keyHash);
+    const st = this.streams.get(keyHash);
+    const info = cleanSpectateInfo(rawInfo);
+    if (!p || !st || !info || !this.canStream(keyHash)) return;
+    st.info = info;
+    this.sendViewers(keyHash, { type: 'spec-info', pid: p.pid, info });
+  }
+
+  /** 2048：今のゲームの手をまとめて受け取り、見る人に始め直してなぞってもらう（moves = null は長すぎて送れない） */
+  spec2048Sync(keyHash: string, session: unknown, moves: unknown, score: unknown): void {
+    const p = this.online.get(keyHash);
+    const st = this.streams.get(keyHash);
+    const sess = this.gameSessions.get(keyHash);
+    if (!p || !st || p.playing !== '2048' || !this.canStream(keyHash) || !sess || sess.game !== '2048' || sess.id !== session) return;
+    if (moves === null) {
+      st.session = null;
+      this.sendViewers(keyHash, { type: 'spec-unavailable', pid: p.pid, reason: 'ゲームが長いので、途中からは見られません（次のゲームから見られます）' });
+      return;
+    }
+    if (typeof moves !== 'string' || moves.length > SPECTATE_2048_SYNC_MAX || !SPEC_MOVES_RE.test(moves)) return;
+    st.session = sess.id;
+    st.seed = sess.seed;
+    st.moves = moves;
+    const info = cleanSpectateInfo({ score: score ?? 0, state: 'play' });
+    if (info) st.info = info;
+    this.sendViewers(keyHash, { type: 'spec-2048', pid: p.pid, reset: true, seed: sess.seed, from: 0, moves, score: st.info?.score ?? 0 });
+  }
+
+  /** 2048：続きの手（from = それまでの手の数。合わなければまとめて送り直してもらう） */
+  spec2048Moves(keyHash: string, session: unknown, from: unknown, moves: unknown, score: unknown): void {
+    const p = this.online.get(keyHash);
+    const st = this.streams.get(keyHash);
+    if (!p || !st || p.playing !== '2048' || !this.canStream(keyHash)) return;
+    if (!st.session || st.session !== session || from !== st.moves.length) {
+      this.hooks.send(keyHash, { type: 'spectators', viewers: this.viewerCount(keyHash), allow: true, sync: true });
+      return;
+    }
+    if (typeof moves !== 'string' || !moves || moves.length > SPECTATE_2048_MOVES_MAX || !SPEC_MOVES_RE.test(moves)) return;
+    // 見ている間のゲームが長くなりすぎたら、続きは送らない（次のゲームから）
+    if (st.moves.length + moves.length > SPECTATE_2048_SYNC_MAX * 4) return;
+    st.moves += moves;
+    const info = cleanSpectateInfo({ score: score ?? 0, state: 'play' });
+    if (info) st.info = info;
+    this.sendViewers(keyHash, { type: 'spec-2048', pid: p.pid, reset: false, from, moves, score: st.info?.score ?? 0 });
   }
 }
 

@@ -69,6 +69,7 @@ import { RequestDialog } from './RequestDialog';
 import { ReservationDialog, RoomDoorDialog } from './ReservationDialog';
 import { RoomAdminDialog, RoomClock } from './RoomAdmin';
 import { ScreenDialog } from './ScreenDialog';
+import { GameChooser, SpectateDialog } from './SpectateDialog';
 import { WatchView } from './WatchView';
 
 /** 近くの筐体とみなす距離（マス。チェビシェフ距離） */
@@ -88,6 +89,9 @@ type Dialog =
   /** v0.6.0：ゲーム筐体（id = floor.json の game の番号）・ランキング */
   | { kind: 'game'; id: number }
   | { kind: 'ranking'; game: string }
+  /** v0.6.0：観戦（DESIGN §16.10）。だれかが遊んでいる筐体をクリックしたときの［遊ぶ］［見る］・見る窓 */
+  | { kind: 'gameChoose'; id: number }
+  | { kind: 'spectate'; pid: string }
   | null;
 
 type Hit =
@@ -101,6 +105,8 @@ type Hit =
   | { kind: 'calendar' }
   | { kind: 'game'; id: number }
   | { kind: 'ranking'; game: string }
+  /** v0.6.0：遊んでいる人の頭上の名札（🎮。クリックでその人のプレイを見る） */
+  | { kind: 'playTag'; pid: string }
   | { kind: 'floor'; x: number; y: number };
 
 /** 遠くからクリックして歩いている：着いたら開く窓（クレーンゲーム・ゲーム筐体・ノート・要望箱・予約部屋の扉） */
@@ -448,6 +454,12 @@ export const ArcadePage = ({
           return g ? center(g.poly) : null;
         },
         rankings: () => client.rankings,
+        // v0.6.0：観戦。遊んでいる人の頭上の名札（pid か、無ければいちばん手前）の位置・その人の pid と見ている人数
+        playTag: (pid?: string) => {
+          const t = (live.current.hits?.playTags ?? []).find((x) => !pid || x.pid === pid);
+          return t ? { ...page({ x: t.x + t.w / 2, y: t.y + t.h / 2 }), pid: t.pid } : null;
+        },
+        players: () => [...client.players.values()].map((p) => ({ pid: p.pid, name: p.name, playing: p.playing ?? null, viewers: p.viewers ?? 0, noSpectate: !!p.noSpectate })),
         stance: () => client.me()?.stance ?? null,
         room: () => client.room,
         screen: () => (live.current.hits ? center(live.current.hits.screen) : null),
@@ -714,6 +726,8 @@ export const ArcadePage = ({
     // 上に重ねて描くもの（宣伝の吹き出し・近くの筐体の小さな配信）を先に見る。どちらもその筐体のクリックとして扱う
     // （小さな配信の枠は pointer-events: none でクリックが canvas に届くので、ここで拾わないと下の床へ歩いてしまう）
     const inRect = (r: { x: number; y: number; w: number; h: number }) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    // 遊んでいる人の頭上の名札（🎮。いちばん上に描くので先に見る。v0.6.0 観戦）
+    for (const t of L.hits.playTags ?? []) if (inRect(t)) return { kind: 'playTag', pid: t.pid };
     if (L.hits.promo && inRect(L.hits.promo)) return { kind: 'cabinet', id: L.hits.promo.id };
     if (L.hits.embedRect && L.hits.embedCab !== null && inRect(L.hits.embedRect)) return { kind: 'cabinet', id: L.hits.embedCab };
     // 筐体とクレーンゲーム（手前のものが先。重ならない）
@@ -824,7 +838,13 @@ export const ArcadePage = ({
     if (hit.kind !== 'crane' && hit.kind !== 'game' && hit.kind !== 'note' && hit.kind !== 'request' && hit.kind !== 'door') live.current.pending = null;
     if (hit.kind === 'cabinet') setDialog({ kind: 'cabinet', id: hit.id });
     else if (hit.kind === 'crane') openNear({ kind: 'crane', id: hit.id });
-    else if (hit.kind === 'game') openNear({ kind: 'game', id: hit.id });
+    else if (hit.kind === 'game') {
+      // だれかが遊んでいれば［▶ 遊ぶ］と［👀 〇〇 さんのプレイを見る］（観戦。DESIGN §16.10）。いなければ今までどおり
+      const g = gameSpot(hit.id)?.game;
+      const others = [...client.players.values()].filter((p) => g && p.playing === g && p.pid !== client.you?.pid);
+      if (others.length) setDialog({ kind: 'gameChoose', id: hit.id });
+      else openNear({ kind: 'game', id: hit.id });
+    } else if (hit.kind === 'playTag') setDialog({ kind: 'spectate', pid: hit.pid });
     // ランキングは遠くても歩かずに開く
     else if (hit.kind === 'ranking') setDialog({ kind: 'ranking', game: hit.game });
     else if (hit.kind === 'note') openNear({ kind: 'note' });
@@ -1171,6 +1191,21 @@ export const ArcadePage = ({
       {dialog?.kind === 'ranking' && (
         <RankingDialog game={dialog.game} admin={!!you?.admin} seq={client.rankingSeq} onClose={() => setDialog(null)} />
       )}
+      {dialog?.kind === 'gameChoose' && gameSpot(dialog.id) && (
+        <GameChooser
+          client={client}
+          game={gameSpot(dialog.id)!.game}
+          players={[...client.players.values()].filter((p) => p.playing === gameSpot(dialog.id)!.game && p.pid !== you?.pid)}
+          onPlay={() => {
+            const id = dialog.id;
+            setDialog(null);
+            openNear({ kind: 'game', id });
+          }}
+          onWatch={(pid) => setDialog({ kind: 'spectate', pid })}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'spectate' && <SpectateDialog key={dialog.pid} client={client} pid={dialog.pid} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'posters' && <PosterDialog client={client} meta={meta} initialId={dialog.id} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'note' && (
         <NoteDialog client={client} perView={mobile && !layout.landscape ? 1 : 2} mobile={mobile} onClose={() => setDialog(null)} />

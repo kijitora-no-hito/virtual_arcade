@@ -201,6 +201,19 @@ if (process.env.SCENE_GAME !== '0') {
   await Promise.all([walk(taiyo, 14, 10), walk(pink, 15, 10), walk(aoi, 13, 10)]);
   const gotC = await Promise.all([playColumns(taiyo, 16, 12), playColumns(pink, 12, 8), playColumns(aoi, 9, 4)]);
   console.log('columns', gotC.map((r) => r?.score));
+  // Hextris（DESIGN §16.9）：筐体 (15,4) の前で、消した記録 [k, m]（ブラウザの申告。点数 ≤ 経過秒 × 上限）
+  const playHextris = async (bot, clears, wait) => {
+    const st = await call(bot.key, 'POST', '/api/games/hextris/start', {});
+    await sleep(wait);
+    const score = clears.reduce((a, [k, m]) => a + k * k * m, 0);
+    return call(bot.key, 'POST', '/api/games/hextris/finish', { session: st.session, score, clears }).catch((e) => console.log(e.message));
+  };
+  await Promise.all([walk(purple, 15, 5), walk(boss, 16, 5)]);
+  const gotH = await Promise.all([
+    playHextris(purple, [[3, 1], [4, 2], [3, 3], [5, 4], [3, 1], [3, 2]], 4000),
+    playHextris(boss, [[3, 1], [3, 2], [4, 1]], 3000),
+  ]);
+  console.log('hextris', gotH.map((r) => r?.score));
 }
 
 // 配置：あおいは筐体の列の奥（筐体の陰）、みどりは No.6 の前に座って視聴、ほかは通路

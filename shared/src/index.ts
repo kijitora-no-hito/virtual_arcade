@@ -15,3 +15,5 @@ export * from './games';
 export * from './game2048';
 export * from './columns';
 export * from './gameRecord';
+export * from './hextris';
+export * from './spectate';

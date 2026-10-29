@@ -1,9 +1,9 @@
-import { formatScore, GAMES, gameInfo, jstDate, type RankingEntry, type RankingResponse } from '@va/shared';
+import { formatScore, GAMES, gameInfo, jstDate, SELF_REPORTED_GAMES, type RankingEntry, type RankingResponse } from '@va/shared';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '../api';
 
 /**
- * ランキングの窓（v0.6.0。DESIGN §16.4・§16.8）：ゲームのタブ（2048 / Columns like game）× 総合・今月（日本時間の月）。
+ * ランキングの窓（v0.6.0。DESIGN §16.4・§16.8・§16.9）：ゲームのタブ（2048 / Columns like game / Hextris）× 総合・今月（日本時間の月）。
  * 上位 50 人と自分の順位。鍵ごとのいちばん良い記録で 1 人 1 行。サイトの管理者は 1 行ずつ消せる（不適切な名前など）
  */
 export const RankingDialog = ({
@@ -27,6 +27,7 @@ export const RankingDialog = ({
   const [reload, setReload] = useState(0);
   const title = gameInfo(game)?.title ?? game;
   const columns = game === 'columns';
+  const hextris = game === 'hextris';
 
   useEffect(() => {
     let alive = true;
@@ -54,7 +55,7 @@ export const RankingDialog = ({
   };
 
   const me = data?.me ?? null;
-  // 2048 は「最大」（いちばん大きいタイル）、Columns like game は「開始 Lv」と「ジュエル」
+  // 2048 は「最大」（いちばん大きいタイル）、Columns like game は「開始 Lv」と「ジュエル」、Hextris は「コンボ」（いちばん大きい倍率）
   const cols = columns ? 7 : 6;
   const row = (e: RankingEntry, mine: boolean) => (
     <tr key={`${mine ? 'me' : 'r'}-${e.id}`} className={`${mine ? 'rank-mine' : ''} ${e.rank <= 3 ? `rank-top rank-${e.rank}` : ''}`}>
@@ -68,6 +69,10 @@ export const RankingDialog = ({
           </td>
           <td className="rank-tile rank-jewels">{e.detail?.jewels !== undefined ? formatScore(e.detail.jewels) : '―'}</td>
         </>
+      ) : hextris ? (
+        <td className="rank-tile" title={e.detail?.blocks !== undefined ? `消したブロック ${formatScore(e.detail.blocks)} 個` : undefined}>
+          {e.detail?.combo !== undefined ? `×${e.detail.combo}` : '―'}
+        </td>
       ) : (
         <td className="rank-tile">{e.maxTile}</td>
       )}
@@ -107,6 +112,11 @@ export const RankingDialog = ({
           </button>
         </div>
         {error && <p className="error">{error}</p>}
+        {SELF_REPORTED_GAMES.includes(game) && (
+          <p className="muted small rank-self-report" title="サーバは点の入り方の決まりと速さだけを確かめます">
+            ※ {title} の記録はブラウザの申告です
+          </p>
+        )}
         <p className="muted small rank-me">
           {data
             ? me
@@ -126,6 +136,8 @@ export const RankingDialog = ({
                     <th title="開始レベル">開始Lv</th>
                     <th className="rank-jewels">ジュエル</th>
                   </>
+                ) : hextris ? (
+                  <th title="いちばん大きいコンボの倍率">コンボ</th>
                 ) : (
                   <th>最大</th>
                 )}

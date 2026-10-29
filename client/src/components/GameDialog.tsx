@@ -2,18 +2,25 @@ import {
   formatScore,
   GAME_MAX_MOVES,
   COLUMNS_MAX_PIECES,
+  HEXTRIS_MAX_CLEARS,
   gameInfo,
+  isFrameGame,
+  SPECTATE_2048_MOVES_MAX,
+  SPECTATE_2048_SYNC_MAX,
+  SPECTATE_DEFAULTS,
   type GameFinishResponse,
   type GameStartResponse,
 } from '@va/shared';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, BASE, errorText, myKey } from '../api';
 import type { ArcadeClient } from '../game/client';
+import { captureGameFrame, score2048 } from '../game/spectateCapture';
 import { RankingDialog } from './RankingDialog';
 
 /**
  * いま遊んでいるゲーム（サーバのセッション・種と、記録）。
- * 2048：盤が動いた手の並び（0〜3 と K）。Columns like game：置いたピース [x, rot, bonus, t] とゲームオーバーの最後のピース
+ * 2048：盤が動いた手の並び（0〜3 と K）。Columns like game：置いたピース [x, rot, bonus, t] とゲームオーバーの最後のピース。
+ * Hextris：消した記録 [k, m]（消した数・コンボの倍率）とブラウザの言う点数
  */
 interface Session {
   id: string;
@@ -27,9 +34,15 @@ interface Session {
   /** Columns like game：置いたピース */
   pieces: number[][];
   over: [number, number] | null;
+  /** Hextris：消した記録と点数 */
+  clears: number[][];
+  score: number;
 }
 
 const NO_SESSION_TEXT = 'サーバが再起動したため、このゲームは記録できませんでした';
+
+/** iframe とのやりとりのメッセージの頭 */
+const PREFIX: Record<string, string> = { '2048': 'va2048:', columns: 'va-columns:', hextris: 'va-hextris:' };
 
 /** 記録の結果の帯の文 */
 const resultText = (r: GameFinishResponse): string => {
@@ -50,11 +63,13 @@ const columnsOptionText = (o: { mode: number; colors: number; height: number }) 
   `${['Standard', 'Flash', 'Time Attack'][o.mode] ?? '?'}・Colors ${o.colors}・Height ${o.height}`;
 
 /**
- * ゲーム筐体の窓（v0.6.0。DESIGN §16.3・§16.8）。元のゲームを同じオリジンの iframe で動かし、postMessage でやりとりする。
+ * ゲーム筐体の窓（v0.6.0。DESIGN §16.3・§16.8・§16.9）。元のゲームを同じオリジンの iframe で動かし、postMessage でやりとりする。
  * - 2048：開く → start（種）→ iframe に va2048:start → 盤が動いた手を覚える → ゲームオーバー・New Game・閉じる・退店・ページを離れたときに finish
  * - Columns like game：iframe の Play → va-columns:play {options} → start（種・練習か）→ va-columns:start → 置いたピースを覚える →
  *   ゲームオーバー・Reset・閉じる・退店・ページを離れたときに finish（練習の設定は送らない）
- * 点数はサーバが種と記録からなぞり直して決める
+ * - Hextris：iframe の Play・やり直し → va-hextris:play → start → va-hextris:start → 消した記録を覚える → ゲームオーバー・やり直し・閉じる…で finish
+ * 点数はサーバが種と記録からなぞり直して決める（Hextris は点の入り方の決まりと速さだけを見る。ブラウザの申告）。
+ * v0.6.0：観戦（DESIGN §16.10）。見る人がいる間だけ、2048 は手を、Columns like game・Hextris は画面を縮めた画像を WebSocket で送る
  */
 export const GameDialog = ({
   client,
@@ -76,12 +91,17 @@ export const GameDialog = ({
   const [result, setResult] = useState<{ text: string; error: boolean } | null>(null);
   const [practice, setPractice] = useState<string | null>(null);
   const [showRanking, setShowRanking] = useState(false);
+  /** 観戦：見ている人数・許可しているか */
+  const [spec, setSpec] = useState({ viewers: 0, allow: client.spectators.allow });
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const info = gameInfo(game);
   const columns = game === 'columns';
+  const hextris = game === 'hextris';
+  /** 開いてもすぐには始めない（iframe の Play を待つ）ゲーム */
+  const deferStart = game !== '2048';
   /** iframe とのやりとりのメッセージの頭 */
-  const P = columns ? 'va-columns:' : 'va2048:';
+  const P = PREFIX[game] ?? 'va2048:';
 
   const post = (msg: unknown) => frameRef.current?.contentWindow?.postMessage(msg, location.origin);
   const focusFrame = () => {
@@ -98,11 +118,11 @@ export const GameDialog = ({
     try {
       const r = await api<GameStartResponse>('POST', `/api/games/${game}/start`, columns ? { options } : {});
       gen.current += 1;
-      sess.current = { id: r.session, gen: gen.current, practice: !!r.practice, moves: '', count: 0, pieces: [], over: null };
+      sess.current = { id: r.session, gen: gen.current, practice: !!r.practice, moves: '', count: 0, pieces: [], over: null, clears: [], score: 0 };
       setPractice(r.practice && r.options ? columnsOptionText(r.options) : null);
       const msg = columns
         ? { type: 'va-columns:start', seed: r.seed, gen: gen.current, options: r.options }
-        : { type: 'va2048:start', seed: r.seed, gen: gen.current, best: r.best };
+        : { type: `${P}start`, seed: r.seed, gen: gen.current, best: r.best };
       if (ready.current) {
         post(msg);
         focusFrame();
@@ -110,7 +130,7 @@ export const GameDialog = ({
     } catch (e) {
       sess.current = null;
       setResult({ text: errorText(e), error: true });
-      if (columns) post({ type: 'va-columns:failed' });
+      if (deferStart) post({ type: `${P}failed` });
     }
   };
 
@@ -120,6 +140,7 @@ export const GameDialog = ({
     sess.current = null;
     if (!s || s.practice) return null;
     if (columns) return s.pieces.length > 0 || s.over ? { session: s.id, moves: s.pieces, ...(s.over ? { over: s.over } : {}) } : null;
+    if (hextris) return s.clears.length > 0 ? { session: s.id, score: s.score, clears: s.clears } : null;
     return s.count > 0 ? { session: s.id, moves: s.moves } : null;
   };
 
@@ -176,7 +197,7 @@ export const GameDialog = ({
     }
   };
 
-  /** Columns like game の Play：前のゲームが残っていれば記録してから、その設定で始める */
+  /** Columns like game・Hextris の Play：前のゲームが残っていれば記録してから、その設定で始める */
   const play = async (options: unknown) => {
     if (restarting.current) return;
     restarting.current = true;
@@ -189,6 +210,11 @@ export const GameDialog = ({
     }
   };
 
+  /** 観戦：見る人がいれば今の状態（ゲームオーバーなど）を知らせる */
+  const specState = (score: number, state: 'play' | 'paused' | 'over' | 'idle') => {
+    if (client.spectators.viewers > 0 && client.spectators.allow) client.send({ type: 'spec-state', info: { score, state } });
+  };
+
   const startRef = useRef(start);
   startRef.current = start;
   const finishRef = useRef(finish);
@@ -199,6 +225,8 @@ export const GameDialog = ({
   playRef.current = play;
   const finishOnLeaveRef = useRef(finishOnLeave);
   finishOnLeaveRef.current = finishOnLeave;
+  const specStateRef = useRef(specState);
+  specStateRef.current = specState;
 
   // iframe からの知らせ（送り主がこの iframe で、同じオリジンのものだけ）
   useEffect(() => {
@@ -234,7 +262,7 @@ export const GameDialog = ({
         case 'restart':
           void restartRef.current();
           break;
-        // ---- Columns like game
+        // ---- Columns like game・Hextris
         case 'play':
           void playRef.current(d.options);
           break;
@@ -247,10 +275,19 @@ export const GameDialog = ({
         case 'reset':
           if (s) void finishRef.current();
           break;
+        // ---- Hextris：ブロックを消した
+        case 'clear':
+          if (mine && isInt(d.k) && isInt(d.m) && s.clears.length < HEXTRIS_MAX_CLEARS) {
+            if (!s.clears.length) setResult(null);
+            s.clears.push([d.k, d.m]);
+            s.score = isInt(d.score) ? d.score : s.score + d.k * d.k * d.m;
+          }
+          break;
         // ---- 共通
         case 'over':
           if (mine) {
             if (columns && isInt(d.x) && isInt(d.bonus)) s.over = [d.x, d.bonus];
+            specStateRef.current(isInt(d.score) ? d.score : 0, 'over');
             void finishRef.current();
           }
           break;
@@ -263,10 +300,10 @@ export const GameDialog = ({
     return () => window.removeEventListener('message', on);
   }, [P]);
 
-  // 開いたら（2048 はすぐ始める。Columns like game は iframe の Play を待つ）。頭上に 🎮。閉じる・ページを離れるときに記録する
+  // 開いたら（2048 はすぐ始める。Columns like game・Hextris は iframe の Play を待つ）。頭上に 🎮。閉じる・ページを離れるときに記録する
   useEffect(() => {
     client.send({ type: 'play', game });
-    if (game !== 'columns') void startRef.current();
+    if (!deferStart) void startRef.current();
     const hide = () => finishOnLeaveRef.current();
     window.addEventListener('pagehide', hide);
     return () => {
@@ -276,22 +313,74 @@ export const GameDialog = ({
     };
   }, [client, game]);
 
-  // 画面の確認用（URL の末尾に #dev のときだけ）：今のゲームの手の数・置いたピース
+  // ---- 観戦（DESIGN §16.10）：見ている人数と、見る人がいる間だけの中継
+  /** 2048：見る人に送った手（どのセッションの何手目まで）・まとめて送り直す */
+  const sent2048 = useRef<{ session: string | null; n: number; sync: boolean }>({ session: null, n: 0, sync: true });
+  /** 送った画像の数・大きさ（確認用） */
+  const specSent = useRef({ frames: 0, bytes: 0, since: 0, last: '' });
+  useEffect(() => {
+    client.spectators = { viewers: 0, allow: client.spectators.allow };
+    return client.onSpec((m) => {
+      if (m.type !== 'spectators') return;
+      setSpec({ viewers: m.viewers, allow: m.allow });
+      if (m.sync || m.viewers === 0) sent2048.current = { session: null, n: 0, sync: true };
+    });
+  }, [client]);
+  const streaming = spec.viewers > 0 && spec.allow;
+  useEffect(() => {
+    if (!streaming) return;
+    const every = Math.ceil(1000 / SPECTATE_DEFAULTS.fps);
+    const tick = () => {
+      if (isFrameGame(game)) {
+        const f = captureGameFrame(frameRef.current, game);
+        // 同じ画面（一時停止中など）は送り直さない
+        if (!f || f.image === specSent.current.last) return;
+        specSent.current.last = f.image;
+        if (!specSent.current.since) specSent.current.since = performance.now();
+        specSent.current.frames++;
+        specSent.current.bytes += f.bytes;
+        client.send({ type: 'spec-frame', image: f.image, info: f.info });
+        return;
+      }
+      // 2048：始め直した・頼まれたときは今のゲームの手をまとめて、それ以外は増えた分だけ
+      const s = sess.current;
+      if (!s) return;
+      const st = sent2048.current;
+      const score = score2048(frameRef.current);
+      if (st.sync || st.session !== s.id) {
+        const tooLong = s.moves.length > SPECTATE_2048_SYNC_MAX;
+        client.send({ type: 'spec-sync', session: s.id, moves: tooLong ? null : s.moves, score });
+        sent2048.current = { session: s.id, n: s.moves.length, sync: false };
+      } else if (s.moves.length > st.n) {
+        const part = s.moves.slice(st.n, st.n + SPECTATE_2048_MOVES_MAX);
+        client.send({ type: 'spec-moves', session: s.id, from: st.n, moves: part, score });
+        st.n += part.length;
+      }
+    };
+    const id = window.setInterval(tick, every);
+    tick();
+    return () => window.clearInterval(id);
+  }, [client, game, streaming]);
+
+  // 画面の確認用（URL の末尾に #dev のときだけ）：今のゲームの手の数・置いたピース・消した記録・観戦で送った画像
   useEffect(() => {
     if (!location.hash.includes('dev')) return;
     const w = window as unknown as Record<string, unknown>;
     w.__vaGame = {
       game: () => game,
-      moves: () => (columns ? (sess.current?.pieces ?? null) : (sess.current?.moves ?? null)),
-      count: () => (columns ? (sess.current?.pieces.length ?? 0) : (sess.current?.count ?? 0)),
+      moves: () => (columns ? (sess.current?.pieces ?? null) : hextris ? (sess.current?.clears ?? null) : (sess.current?.moves ?? null)),
+      count: () => (columns ? (sess.current?.pieces.length ?? 0) : hextris ? (sess.current?.clears.length ?? 0) : (sess.current?.count ?? 0)),
+      score: () => sess.current?.score ?? 0,
       practice: () => sess.current?.practice ?? null,
       session: () => !!sess.current,
       gen: () => gen.current,
+      viewers: () => client.spectators.viewers,
+      specSent: () => ({ ...specSent.current, last: undefined, ms: specSent.current.since ? performance.now() - specSent.current.since : 0 }),
     };
     return () => {
       delete w.__vaGame;
     };
-  }, [game, columns]);
+  }, [game, columns, hextris, client]);
 
   return (
     <div className="modal-back" onClick={onClose}>
@@ -299,6 +388,23 @@ export const GameDialog = ({
         <div className="modal-head">
           <h2>🎮 {info?.title ?? game}</h2>
           <div className="row-gap">
+            <span className={`spec-count ${spec.viewers ? 'on' : ''}`} title="あなたのプレイを見ている人数">
+              👀 {spec.viewers}
+              <span className="spec-long"> 人が見ています</span>
+            </span>
+            <label className="spec-allow" title="切ると、ほかの人はあなたのプレイを見られません（今見ている人も終わります）">
+              <input
+                type="checkbox"
+                checked={spec.allow}
+                onChange={(e) => {
+                  const allow = e.target.checked;
+                  setSpec((x) => ({ ...x, allow }));
+                  client.send({ type: 'spectate-allow', allow });
+                }}
+              />
+              <span className="spec-long">観戦を許可</span>
+              <span className="spec-short">観戦</span>
+            </label>
             <button className="small" onClick={() => setShowRanking(true)} title="ランキングを見る">
               🏆 ランキング
             </button>
@@ -328,7 +434,9 @@ export const GameDialog = ({
         <p className="muted small game-note">
           {columns
             ? 'Play で始まります（Options の Standard・Colors 5・Height 0 がランキングの対象。Level は自由）。途中でやめても、そこまでの点数を記録します。点数はサーバが置いたピースをなぞり直して決めます。'
-            : '途中でやめても、そこまでの点数を記録します（順位はいちばん良い記録で決まります）。点数はサーバが手順をなぞり直して決めます。'}
+            : hextris
+              ? 'Play（クリック・Enter）で始まります。← → で回す・↓ で速く・P で一時停止。途中でやめても、そこまでの点数を記録します。Hextris の記録はブラウザの申告です（サーバは点の入り方と速さだけを確かめます）。'
+              : '途中でやめても、そこまでの点数を記録します（順位はいちばん良い記録で決まります）。点数はサーバが手順をなぞり直して決めます。'}
         </p>
       </div>
       {showRanking && <RankingDialog game={game} admin={!!client.you?.admin} seq={client.rankingSeq} onClose={() => setShowRanking(false)} />}

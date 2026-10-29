@@ -186,6 +186,7 @@ sudo rm -rf /tmp/va-check
 | `POSTER_WHO` / `POSTER_MAX_PER_USER` / `POSTER_MAX_TOTAL` | all / 2 / 40 | ポスターを貼れる人・枚数 |
 | `NOTE_MAX_TOTAL` / `REQUEST_MAX_TOTAL` | 2000 / 1000 | ノート・要望を残す件数 |
 | `CHAT_TTL_HOURS` | 24 | チャットの発言を残す時間（過ぎたら DB からも開いている画面からも消える。1〜8760。0.5.1〜） |
+| `SPECTATE` / `SPECTATE_MAX_VIEWERS` / `SPECTATE_FPS` / `SPECTATE_MAX_STREAMS` | on / 8 / 5 / 6 | ほかの人のプレイの観戦（0.6.0〜）。`off` で止める・1 人を見られる人数・画像の 1 秒の枚数・同時に見られている人の合計 |
 
 ## 8. Apache に `/arcade/` と `/arcade/ws` の中継を足す
 
@@ -306,7 +307,8 @@ sudo rm -rf /opt/virtual-arcade /var/lib/virtual-arcade /etc/virtual-arcade && s
   管理者は合言葉を入れてから 12 時間（`ADMIN_TTL_HOURS`）・WebSocket 全体 300 本（`MAX_CONNECTIONS`）・同じ IP から 10 本（`MAX_CONNECTIONS_PER_IP`）。
   回数制限（IP ごと）: 初めての入室 1 分に 20 回・WebSocket の接続 1 分に 60 回・発言 1 分に 20 回（同じ人は 1 秒に 1 回・15 秒に 6 回まで）・合言葉の入力 10 分に 5 回（同じ鍵でも 5 回）・
   API 全体 1 分に 600 回。同じ人のエモーションは 0.8 秒に 1 回・20 秒に 8 回、筐体の操作は 1 分に 20 回、移動の指示は 1 秒に 10 回まで。
-  JSON は 16 KB まで、WebSocket の 1 通は 4 KB まで（1 本から 10 秒に 80 通を超えたら切る）。
+  JSON は 16 KB まで、WebSocket の 1 通は 4 KB まで（1 本から 10 秒に 80 通を超えたら切る）。0.6.0 から、観戦の画像（1 枚 32 KB まで）と 2048 の手のまとめだけ 48 KB まで
+  （遊んでいて見る人がいるときだけ受け取る・観戦の中継は別に 1 秒 15 通まで）。見る人 1 人あたり約 10〜20 KB/秒（Apache の設定は変えなくてよい）。
 - 来た人の記録（名前・見た目・最後の位置）は、最後に来てから 180 日で消える（入室を止めている人は残す）。
 - **チャット**（0.5.1〜）: 発言は **24 時間**（`CHAT_TTL_HOURS`。1〜8760）で消える（起動時と 1 分ごとに DB から消し、開いている画面からも消える。ピン止めも外れる）。
   件数も今までどおり部屋ごとに新しい 200 件まで。お知らせのチャットの行が消えても、お知らせそのもの（大画面の帯・一覧）は残る。

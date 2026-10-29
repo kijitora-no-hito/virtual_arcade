@@ -173,7 +173,7 @@ describe('replay2048', () => {
 
 describe('ゲームの一覧・置き場所（floor.json）', () => {
   it('2048 の筐体とランキングの立て看板があり、どちらも GAMES にあるゲーム', () => {
-    expect(GAMES.map((g) => g.id)).toEqual(['2048', 'columns']);
+    expect(GAMES.map((g) => g.id)).toEqual(['2048', 'columns', 'hextris']);
     expect(isGameId('2048')).toBe(true);
     expect(isGameId('tetris')).toBe(false);
     const g = gameSpots(FLOOR, '2048');
@@ -185,11 +185,13 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
     // 板は筐体の 2 マス右に置かないと筐体の画面を隠すので、Hextris の 2 マス右）。16 番の隣 (14,9)〜(16,9) はコラムス用に空けておく
     expect(g[0]).toMatchObject({ x: 14, y: 4 });
     expect(rankingSpots(FLOOR, '2048')[0]).toMatchObject({ x: 17, y: 4 });
-    // Hextris 用に (15,4)・(15,5) と、その立て看板の予定地 (20,3) は空けておく。コラムスの筐体の前 (14,10) と立て看板の前 (16,10) も通れる
+    // Hextris の筐体 (15,4)（2048 の右隣）と立て看板 (20,3)。前のマス (15,5)・(20,4) とコラムスの筐体の前 (14,10)・立て看板の前 (16,10) は通れる
+    expect(gameSpots(FLOOR, 'hextris')[0]).toMatchObject({ x: 15, y: 4, face: 'S' });
+    expect(rankingSpots(FLOOR, 'hextris')[0]).toMatchObject({ x: 20, y: 3 });
+    expect(isPassable(FLOOR, 15, 4)).toBe(false);
     for (const [x, y] of [
-      [15, 4],
       [15, 5],
-      [20, 3],
+      [20, 4],
       [14, 10],
       [15, 9],
       [16, 10],
@@ -197,14 +199,11 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
       expect(isPassable(FLOOR, x, y), `${x},${y}`).toBe(true);
   });
 
-  it('あとで足す Hextris の筐体 (15,4) と立て看板 (20,3) を置いても、前のマスが通れて店のどこへでも歩ける（コラムス (14,9)・(16,9) は置いてある）', () => {
+  it('3 台・3 枚（2048・Columns like game・Hextris）を置いても、通れるマスはどこへでも歩ける', () => {
     const base = floorJson as FloorJson;
     expect(base.decor.some((d) => d.type === 'game' && d.game === 'columns' && d.x === 14 && d.y === 9)).toBe(true);
-    const f = loadFloor({
-      ...base,
-      decor: [...base.decor, { type: 'game', game: 'hextris', x: 15, y: 4, face: 'S' }, { type: 'ranking', game: 'hextris', x: 20, y: 3 }],
-    } as FloorJson);
-    for (const fl of [FLOOR, f]) {
+    expect(base.decor.some((d) => d.type === 'game' && d.game === 'hextris' && d.x === 15 && d.y === 4)).toBe(true);
+    for (const fl of [FLOOR]) {
       const s = fl.spawn[0];
       for (let y = 0; y < fl.rows; y++)
         for (let x = 0; x < fl.cols; x++) if (isPassable(fl, x, y)) expect(findPath(fl, s, { x, y }), `${x},${y}`).not.toBeNull();

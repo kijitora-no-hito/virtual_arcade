@@ -5,6 +5,8 @@
 // - 盤が動いた手だけを {type:'va2048:move', dir, gen} で知らせる（0 上・1 右・2 下・3 左）。終わったら {type:'va2048:over', score, gen}
 // - Keep going は {type:'va2048:keep', gen}、New Game・Try again・R キーは {type:'va2048:restart', gen}（親が記録してから始め直す）
 // - 途中の盤は保存しない。ベストは親から受け取った「サーバに記録された自分のベスト」
+// - v0.6.0：観戦（DESIGN §16.10）。URL が ?view=1 のときは「見るだけ」：キー・スワイプ・ボタンでは動かさず、親から
+//   {type:'va2048:view', reset, seed, moves} を受け取って、その種から手（0〜3 と K）をなぞる（親には何も知らせない）
 // やりとりは同じオリジンの親の窓とだけ（受け取るときは送り主が親で、オリジンが同じかを確かめる）。
 (function () {
   'use strict';
@@ -27,6 +29,29 @@
   var manager = null;
   var isReady = false;
   var pending = null;
+  // 見るだけ（観戦）か。ready の前に届いた手は並べておく
+  var viewOnly = /(^|[?&])view=1(&|$)/.test(String((typeof location !== 'undefined' && location.search) || '').replace(/^\?/, ''));
+  var viewQueue = [];
+
+  // 見るだけのときの入力（何もしない。GameManager が on を呼ぶだけ）
+  function VAViewInput() {}
+  VAViewInput.prototype.on = function () {};
+
+  function view(d) {
+    if (d.reset) {
+      current = mulberry32(d.seed >>> 0);
+      best = 0;
+      if (!manager) manager = new GameManager(4, VAViewInput, HTMLActuator, VAStorageManager, VA2048.rng);
+      else manager.newGame();
+    }
+    if (!manager) return;
+    var moves = String(d.moves || '');
+    for (var i = 0; i < moves.length; i++) {
+      var ch = moves.charAt(i);
+      if (ch === 'K') manager.keepPlaying();
+      else manager.move(Number(ch));
+    }
+  }
 
   function post(msg) {
     if (inFrame) window.parent.postMessage(msg, location.origin);
@@ -68,6 +93,16 @@
     /** 画面の準備ができた（application.js が呼ぶ） */
     ready: function () {
       isReady = true;
+      if (viewOnly) {
+        document.documentElement.className += ' va-view';
+        var st = document.createElement('style');
+        // 見るだけ：New Game・Keep going・Try again は押せない（親の窓に「〇〇 さんのプレイ」と出す）
+        st.textContent = '.va-view .above-game,.va-view .best-container,.va-view .lower,.va-view .game-explanation,.va-view hr,.va-view .va-credit{display:none!important}.va-view .heading{margin-bottom:12px}.va-view .game-container{pointer-events:none;margin-top:0}';
+        document.head.appendChild(st);
+        post({ type: 'va2048:ready', view: true });
+        while (viewQueue.length) view(viewQueue.shift());
+        return;
+      }
       post({ type: 'va2048:ready' });
       if (pending) {
         var p = pending;
@@ -76,13 +111,16 @@
       }
     },
     requestRestart: function () {
+      if (viewOnly) return;
       post({ type: 'va2048:restart', gen: gen });
     },
     moved: function (direction, over) {
+      if (viewOnly) return;
       post({ type: 'va2048:move', dir: direction, gen: gen });
       if (over) post({ type: 'va2048:over', score: manager ? manager.score : 0, gen: gen });
     },
     kept: function () {
+      if (viewOnly) return;
       post({ type: 'va2048:keep', gen: gen });
     },
   };
@@ -93,7 +131,13 @@
     if (event.origin !== location.origin || event.source !== window.parent) return;
     var d = event.data;
     if (!d || typeof d !== 'object') return;
-    if (d.type === 'va2048:start' && typeof d.seed === 'number') {
+    if (d.type === 'va2048:view' && viewOnly) {
+      var v = { reset: !!d.reset, seed: Number(d.seed) || 0, moves: /^[0-3K]*$/.test(String(d.moves || '')) ? String(d.moves || '') : '' };
+      if (isReady) view(v);
+      else viewQueue.push(v);
+      return;
+    }
+    if (d.type === 'va2048:start' && typeof d.seed === 'number' && !viewOnly) {
       var p = { seed: d.seed >>> 0, gen: d.gen | 0, best: Math.max(0, Math.floor(Number(d.best) || 0)) };
       if (isReady) begin(p);
       else pending = p;

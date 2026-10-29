@@ -277,6 +277,7 @@ describe('置き場所（floor.json）', () => {
     expect(gameSpots().map((s) => [s.id, s.game])).toEqual([
       [1, '2048'],
       [2, 'columns'],
+      [3, 'hextris'],
     ]);
   });
 });

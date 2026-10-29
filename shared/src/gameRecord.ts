@@ -1,9 +1,10 @@
-// ゲームの記録をなぞり直して点数を決める（v0.6.0。DESIGN §16.3・§16.8）。ゲームごとに違う所はここに集める
+// ゲームの記録をなぞり直して点数を決める（v0.6.0。DESIGN §16.3・§16.8・§16.9）。ゲームごとに違う所はここに集める
 // （サーバの finish はこれを呼ぶだけ。クライアントの言う点数は使わない）。
 
 import { COLUMNS_PLACE_MIN_MS, isRankedColumns, parseColumnsOptions, replayColumns, type ColumnsOptions } from './columns';
 import { countMoves, MOVES_RE, replay2048 } from './game2048';
 import { GAME_MAX_MOVES, GAME_MOVE_MIN_MS } from './games';
+import { checkHextris } from './hextris';
 import type { GameDetail } from './protocol';
 
 /** start のときに決める設定（2048 は無し。Columns like game はオプション） */
@@ -29,6 +30,7 @@ const COLUMNS_T_SLACK = 3;
  * finish の中身（body）をなぞり直す。elapsedMs = start からの実際の時間（速すぎる記録を断る）。
  * - 2048：body.moves = "0123K…"（盤が動いた手と Keep going）
  * - columns：body.moves = [[x, rot, bonus, t], …]（置いたピース）・body.over = [x, bonus]（ゲームオーバーの最後のピース。途中でやめたら無し）
+ * - hextris：body.score（ブラウザの言う点数）・body.clears = [[k, m], …]（消した数・コンボの倍率）。なぞり直さず、点の入り方の決まりと速さだけを見る（hextris.ts）
  */
 export const checkGameRecord = (game: string, seed: number, options: GameOptions, body: Record<string, unknown>, elapsedMs: number): GameRecordResult => {
   if (game === '2048') {
@@ -52,6 +54,11 @@ export const checkGameRecord = (game: string, seed: number, options: GameOptions
     // 経過秒は実際の時間を超えない（マジックジュエルが出るかに効く）
     if (r.maxT > 1 + Math.floor(elapsedMs / 1000) + COLUMNS_T_SLACK) return { ok: false, code: 'too-fast' };
     return { ok: true, score: r.score, moves: r.pieces, maxTile: 0, detail: { startLevel: start, level: r.level, jewels: r.jewels } };
+  }
+  if (game === 'hextris') {
+    const r = checkHextris(body.score, body.clears, elapsedMs);
+    if (!r.ok) return r;
+    return { ok: true, score: r.score, moves: r.clears, maxTile: 0, detail: { combo: r.maxCombo, blocks: r.blocks } };
   }
   return { ok: false, code: 'bad-moves' };
 };

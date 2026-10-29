@@ -7,6 +7,7 @@ import type { PosterView } from './posters';
 import type { ReservationView, RoomId } from './rooms';
 import type { Point } from './floor';
 import type { Emote, Look, Stance } from './looks';
+import type { SpectateInfo } from './spectate';
 
 /** ほかの人に見える人の情報（鍵・ハッシュは載せない。pid は公開 ID） */
 export interface PlayerView {
@@ -30,6 +31,10 @@ export interface PlayerView {
   playing?: string | null;
   /** v0.6.0：ポーズ（ベガ立ち = 腕を組む。動くまで続く）。null / 無し = ふつう */
   stance?: Stance | null;
+  /** v0.6.0：遊んでいるゲームを見ている人数（観戦。DESIGN §16.10。0 なら無し） */
+  viewers?: number;
+  /** v0.6.0：観戦を許可していない（窓の［観戦を許可］を切った） */
+  noSpectate?: boolean;
 }
 
 export interface PinnedChat {
@@ -190,11 +195,14 @@ export interface RankingEntry {
   detail?: GameDetail;
 }
 
-/** 記録のゲームごとの中身（v0.6.0。DESIGN §16.8） */
+/** 記録のゲームごとの中身（v0.6.0。DESIGN §16.8・§16.9） */
 export interface GameDetail {
   startLevel?: number;
   level?: number;
   jewels?: number;
+  /** Hextris：いちばん大きいコンボの倍率・消したブロックの数 */
+  combo?: number;
+  blocks?: number;
 }
 
 /** POST /api/games/:game/start（Columns like game は body に options） */
@@ -258,7 +266,20 @@ export type ClientMessage =
   /** v0.6.0：ゲームの窓を開いた（game）・閉じた（null）。頭上の 🎮 */
   | { type: 'play'; game: string | null }
   /** v0.6.0：ポーズ（ベガ立ち）を付ける・外す（null）。歩くと外れる */
-  | { type: 'stance'; stance: Stance | null };
+  | { type: 'stance'; stance: Stance | null }
+  // ---- v0.6.0：観戦（DESIGN §16.10）
+  /** 見る人：pid の人のプレイを見る（null でやめる） */
+  | { type: 'spectate'; pid: string | null }
+  /** 遊ぶ人：観戦を許可する・しない */
+  | { type: 'spectate-allow'; allow: boolean }
+  /** 遊ぶ人（Columns like game・Hextris）：画面を縮めた画像（data URL）と添える文字。見る人がいるときだけ */
+  | { type: 'spec-frame'; image: string; info?: SpectateInfo }
+  /** 遊ぶ人（2048）：今のゲームの手をまとめて（session = 今のセッション。長すぎれば moves = null） */
+  | { type: 'spec-sync'; session: string; moves: string | null; score?: number }
+  /** 遊ぶ人（2048）：続きの手（from = それまでの手の数） */
+  | { type: 'spec-moves'; session: string; from: number; moves: string; score?: number }
+  /** 遊ぶ人：状態（ゲームオーバー・一時停止など）と点数 */
+  | { type: 'spec-state'; info: SpectateInfo };
 
 export interface WelcomeMessage {
   type: 'welcome';
@@ -309,4 +330,19 @@ export type ServerMessage =
   | { type: 'kicked'; reason: string; until?: number }
   | { type: 'error'; error: string; code?: string }
   /** serverNow（v0.5.0）：時計の差を合わせ直す（予約部屋の残り時間） */
-  | { type: 'pong'; serverNow?: number };
+  | { type: 'pong'; serverNow?: number }
+  // ---- v0.6.0：観戦（DESIGN §16.10）
+  /** 遊ぶ人へ：見ている人数・許可しているか。sync = 2048 の手をまとめて送ってほしい */
+  | { type: 'spectators'; viewers: number; allow: boolean; sync?: boolean }
+  /** 見る人へ：見始めた */
+  | { type: 'spec-start'; pid: string; name: string; game: string }
+  /** 見る人へ（2048）：reset = 種から始め直してから moves をなぞる。そうでなければ from 手目からの続き */
+  | { type: 'spec-2048'; pid: string; reset: boolean; seed?: number; from: number; moves: string; score?: number }
+  /** 見る人へ：2048 が長すぎて途中からは見られない */
+  | { type: 'spec-unavailable'; pid: string; reason: string }
+  /** 見る人へ（Columns like game・Hextris）：画像 */
+  | { type: 'spec-frame'; pid: string; image: string; info?: SpectateInfo }
+  /** 見る人へ：状態（ゲームオーバー・新しいゲーム・一時停止）と点数 */
+  | { type: 'spec-info'; pid: string; info: SpectateInfo }
+  /** 見る人へ：見るのが終わった（遊ぶ人が閉じた・部屋を移った・切れた・許可を切った）。score = 最後の点数 */
+  | { type: 'spec-end'; pid: string; name: string; reason: string; score: number | null };

@@ -58,7 +58,7 @@ const parseDetail = (raw: string): GameDetail => {
   try {
     const j = JSON.parse(raw) as Record<string, unknown>;
     const d: GameDetail = {};
-    for (const k of ['startLevel', 'level', 'jewels'] as const) if (typeof j[k] === 'number') d[k] = j[k] as number;
+    for (const k of ['startLevel', 'level', 'jewels', 'combo', 'blocks'] as const) if (typeof j[k] === 'number') d[k] = j[k] as number;
     return d;
   } catch {
     return {};

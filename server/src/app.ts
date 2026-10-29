@@ -23,6 +23,9 @@ import {
   RESERVATION_KEY_TOTAL_MS,
   RESERVATION_LIMITS,
   SLOT_MS,
+  WS_BIG_TYPES,
+  WS_MAX_BYTES,
+  WS_SPECTATE_MAX_BYTES,
   type ClientMessage,
   type MeResponse,
   type MetaResponse,
@@ -59,6 +62,13 @@ const SLOT_TICK_MS = 5 * 1000;
 const WS_MSGS_PER_10S = 80;
 /** 移動の指示は 1 秒に 10 回まで（超えた分は捨てる） */
 const GOTO_PER_SEC = 10;
+/**
+ * v0.6.0：観戦の中継（spec-…）のメッセージは上の数とは別に数える（画像は 1 秒に SPECTATE_FPS 枚まで。超えた分はサーバが捨てる）。
+ * 1 秒にこれより多く送ってきたら切る
+ */
+const WS_SPEC_PER_SEC = 15;
+/** 受け取れない大きなメッセージ（見る人がいないのに送った画像など）が 10 秒にこれより多ければ切る */
+const WS_BIG_REFUSED_PER_10S = 20;
 
 interface Conn {
   ip: string;
@@ -66,6 +76,9 @@ interface Conn {
   alive: boolean;
   msgs: number[];
   gotos: number[];
+  /** v0.6.0：観戦の中継のメッセージ（1 秒）・受け取れなかった大きなメッセージ（10 秒）の時刻 */
+  spec: number[];
+  bigRefused: number[];
 }
 
 export const createServer = (opts: AppOptions) => {
@@ -640,7 +653,8 @@ export const createServer = (opts: AppOptions) => {
 
   // ---- WebSocket：{base}/ws に接続し、最初のメッセージ {type:'hello', key} で店に入る。
   // 秘密鍵は URL（アクセスログに残る）に載せない。
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 });
+  // 1 通は 4 KB まで。観戦の画像・2048 の手のまとめ（spec-frame・spec-sync）だけ 48 KB まで（下の message で見る）
+  const wss = new WebSocketServer({ noServer: true, maxPayload: WS_SPECTATE_MAX_BYTES });
   const conns = new Map<WebSocket, Conn>();
   /** 鍵ごとの接続（1 人 1 本。新しくつないだら古い方を切る） */
   const byKey = new Map<string, WebSocket>();
@@ -762,6 +776,25 @@ export const createServer = (opts: AppOptions) => {
           arcade.setStance(k, m.stance === undefined ? null : m.stance);
           return;
         }
+        // ---- v0.6.0：観戦（DESIGN §16.10）
+        case 'spectate':
+          arcade.spectate(k, m.pid === undefined ? null : m.pid);
+          return;
+        case 'spectate-allow':
+          arcade.allowSpectate(k, m.allow);
+          return;
+        case 'spec-frame':
+          arcade.specFrame(k, m.image, m.info);
+          return;
+        case 'spec-sync':
+          arcade.spec2048Sync(k, m.session, m.moves, m.score);
+          return;
+        case 'spec-moves':
+          arcade.spec2048Moves(k, m.session, m.from, m.moves, m.score);
+          return;
+        case 'spec-state':
+          arcade.specState(k, m.info);
+          return;
         default:
           return;
       }
@@ -771,7 +804,7 @@ export const createServer = (opts: AppOptions) => {
   };
 
   wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, ip: string) => {
-    const c: Conn = { ip, keyHash: null, alive: true, msgs: [], gotos: [] };
+    const c: Conn = { ip, keyHash: null, alive: true, msgs: [], gotos: [], spec: [], bigRefused: [] };
     conns.set(ws, c);
     ipConns.set(ip, (ipConns.get(ip) ?? 0) + 1);
     const helloTimer = setTimeout(() => {
@@ -796,13 +829,34 @@ export const createServer = (opts: AppOptions) => {
     ws.on('message', (data) => {
       c.alive = true;
       const t = Date.now();
-      c.msgs = c.msgs.filter((x) => x > t - 10_000);
-      c.msgs.push(t);
-      if (c.msgs.length > WS_MSGS_PER_10S) {
-        ws.close(1008);
+      const text = String(data);
+      const bytes = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(text);
+      // 4 KB を超えるのは、入ったあとの観戦の画像・2048 の手のまとめだけ（中身は下で確かめる）
+      const big = bytes > WS_MAX_BYTES;
+      if (big && !c.keyHash) {
+        ws.close(1009);
         return;
       }
-      const text = String(data);
+      // 観戦の中継（spec-…）は別に数える（画像は 1 秒に数枚届くので、ふつうのメッセージの数に入れない）
+      if (text.startsWith('{"type":"spec-')) {
+        c.spec = c.spec.filter((x) => x > t - 1000);
+        c.spec.push(t);
+        if (c.spec.length > WS_SPEC_PER_SEC) {
+          ws.close(1008);
+          return;
+        }
+      } else {
+        if (big) {
+          ws.close(1009);
+          return;
+        }
+        c.msgs = c.msgs.filter((x) => x > t - 10_000);
+        c.msgs.push(t);
+        if (c.msgs.length > WS_MSGS_PER_10S) {
+          ws.close(1008);
+          return;
+        }
+      }
       if (text === 'ping') {
         send(ws, { type: 'pong', serverNow: now() });
         return;
@@ -822,6 +876,20 @@ export const createServer = (opts: AppOptions) => {
         return;
       }
       if (byKey.get(c.keyHash) !== ws) return; // 置き換えられた古い接続
+      if (big) {
+        // 大きなメッセージは観戦の画像・手のまとめだけ。遊んでいて見る人がいるときだけ受け取る（そうでなければ捨てて、続けば切る）
+        if (typeof m.type !== 'string' || !WS_BIG_TYPES.includes(m.type)) {
+          ws.close(1009);
+          return;
+        }
+        if (!arcade.canStream(c.keyHash)) {
+          arcade.specStats.framesDropped++;
+          c.bigRefused = c.bigRefused.filter((x) => x > t - 10_000);
+          c.bigRefused.push(t);
+          if (c.bigRefused.length > WS_BIG_REFUSED_PER_10S) ws.close(1008);
+          return;
+        }
+      }
       onMessage(ws, c, m);
     });
   });

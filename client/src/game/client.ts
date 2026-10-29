@@ -43,6 +43,12 @@ export type Fatal =
 const CHAT_KEEP = 200;
 
 export type NoteEvent = Extract<ServerMessage, { type: 'note' | 'note-delete' }>;
+/** v0.6.0：観戦のメッセージ（遊ぶ人の窓・見る人の窓が受け取る。DESIGN §16.10） */
+export type SpecEvent =
+  | Extract<ServerMessage, { type: 'spectators' | 'spec-start' | 'spec-2048' | 'spec-unavailable' | 'spec-frame' | 'spec-info' | 'spec-end' }>
+  | { type: 'spec-error'; code: string; error: string };
+/** 見る（spectate）を断られたときのエラーの code（観戦の窓に出す） */
+const SPEC_ERRORS = ['not-found', 'self', 'not-playing', 'denied', 'full', 'busy', 'spectate-off'];
 
 export class ArcadeClient {
   players = new Map<string, ClientPlayer>();
@@ -74,6 +80,14 @@ export class ArcadeClient {
   rankings: Record<string, RankingEntry[]> = {};
   /** ランキングが変わった回数（開いているランキングの窓が読み直す合図） */
   rankingSeq = 0;
+  /** v0.6.0：自分のプレイを見ている人数・観戦を許可しているか（遊ぶ人の窓に出す） */
+  spectators = { viewers: 0, allow: true };
+  private specListeners = new Set<(m: SpecEvent) => void>();
+
+  onSpec = (fn: (m: SpecEvent) => void): (() => void) => {
+    this.specListeners.add(fn);
+    return () => this.specListeners.delete(fn);
+  };
 
   constructor(initialRoom: RoomId = 'open') {
     this.room = initialRoom;
@@ -260,6 +274,19 @@ export class ArcadeClient {
         this.rankings = { ...this.rankings, [msg.game]: msg.top };
         this.rankingSeq++;
         break;
+      // ---- v0.6.0：観戦
+      case 'spectators':
+        this.spectators = { viewers: msg.viewers, allow: msg.allow };
+        for (const l of this.specListeners) l(msg);
+        break;
+      case 'spec-start':
+      case 'spec-2048':
+      case 'spec-unavailable':
+      case 'spec-frame':
+      case 'spec-info':
+      case 'spec-end':
+        for (const l of this.specListeners) l(msg);
+        return;
       case 'note':
       case 'note-delete':
         for (const l of this.noteListeners) l(msg);
@@ -287,6 +314,9 @@ export class ArcadeClient {
         } else if (['banned', 'full', 'need-enter', 'no-key'].includes(code) && !this.connected) {
           this.closed = true;
           this.fatal = { code: code as 'banned', text: msg.error };
+        } else if (SPEC_ERRORS.includes(code) && this.specListeners.size) {
+          // 観戦を断られた（観戦の窓に出す）
+          for (const l of this.specListeners) l({ type: 'spec-error', code, error: msg.error });
         } else {
           this.toast = { text: msg.error, at: performance.now() };
         }

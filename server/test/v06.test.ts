@@ -199,7 +199,7 @@ describe('ゲーム筐体と 2048（DESIGN §16）', () => {
     const h = await harness('g-ws', seeds(13));
     const a = await h.join('うたう');
     const b = await h.join('みてる');
-    expect(a.c.welcome!.rankings).toEqual({ '2048': [], columns: [] });
+    expect(a.c.welcome!.rankings).toEqual({ '2048': [], columns: [], hextris: [] });
     await h.walk(a, NEAR.x, NEAR.y);
 
     // 窓を開いた → 頭上の 🎮（ほかの人にも）

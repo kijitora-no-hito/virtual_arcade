@@ -103,6 +103,8 @@ export interface SceneHits {
   /** v0.6.0：ゲーム筐体・ランキングの立て看板（手前のものが先） */
   games: Array<{ id: number; game: string; poly: SP[] }>;
   rankings: Array<{ id: number; game: string; poly: SP[] }>;
+  /** v0.6.0：遊んでいる人（自分以外）の頭上の名札（🎮。クリックでその人のプレイを見る。手前の人が先） */
+  playTags: Array<{ pid: string; game: string; x: number; y: number; w: number; h: number }>;
 }
 
 // ---------------------------------------------------------------- 小さな道具
@@ -1095,6 +1097,70 @@ const drawScreenColumns = (ctx: CanvasRenderingContext2D, sx: number, sy: number
   ctx.fillRect(sx, sy, sw, sh * 0.3);
 };
 
+/** Hextris の色（元のゲームの 4 色）と、画面の絵の積もったブロック（辺ごとに真ん中から外へ） */
+const HEX_COLORS = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71'];
+const HEX_STACKS = [[0, 2, 2], [1], [3, 3, 0, 1], [2], [1, 0], [0, 3]];
+
+/** Hextris の画面：真ん中の六角形のまわりに色のブロックが積もり、ときどき回り、外からブロックが寄ってくる */
+const drawScreenHextris = (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, t: number) => {
+  ctx.fillStyle = '#ecf0f1';
+  ctx.fillRect(sx, sy, sw, sh);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(sx, sy, sw, sh);
+  ctx.clip();
+  const cx = sx + sw / 2;
+  const cy = sy + sh / 2;
+  const R = Math.min(sw, sh) * 0.46; // 外の灰色の六角形（頂点まで）
+  const r0 = R * 0.3; // 真ん中の六角形
+  const C = Math.cos(Math.PI / 6);
+  const bh = ((R - r0) * C) / 6; // ブロックの厚み
+  const at = (a: number, rho: number) => ({ x: cx + rho * Math.cos(a), y: cy + rho * Math.sin(a) });
+  const hexPath = (rho: number, rot: number) => {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const q = at(rot + i * (Math.PI / 3) + Math.PI / 6, rho);
+      if (i) ctx.lineTo(q.x, q.y);
+      else ctx.moveTo(q.x, q.y);
+    }
+    ctx.closePath();
+  };
+  /** 辺の向き a・真ん中からの距離 d0〜d1 の台形（ブロック 1 つ） */
+  const block = (a: number, d0: number, d1: number, color: string) => {
+    const p = [at(a - Math.PI / 6, d0 / C), at(a + Math.PI / 6, d0 / C), at(a + Math.PI / 6, d1 / C), at(a - Math.PI / 6, d1 / C)];
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    p.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
+    ctx.fill();
+  };
+  // 回転：2.4 秒ごとに 60 度、最初の 0.3 秒で回る
+  const step = Math.floor(t / 2400);
+  const ph = Math.min(1, (t % 2400) / 300);
+  const rot = (step + (1 - (1 - ph) ** 3)) * (Math.PI / 3);
+  hexPath(R, 0);
+  ctx.fillStyle = '#bdc3c7';
+  ctx.fill();
+  const base = r0 * C;
+  HEX_STACKS.forEach((stack, i) => {
+    const a = rot + i * (Math.PI / 3);
+    stack.forEach((c, j) => block(a, base + j * bh, base + (j + 1) * bh - 0.4, HEX_COLORS[c]));
+  });
+  // 外から寄ってくるブロック（向きは固定の 2 本の筋）
+  for (const [lane, color, off] of [
+    [1, 2, 0],
+    [4, 0, 900],
+  ] as const) {
+    const k = ((t + off) % 1800) / 1800;
+    const d = R * 1.25 - k * (R * 1.25 - base - 4 * bh);
+    block(lane * (Math.PI / 3), d, d + bh - 0.4, HEX_COLORS[color]);
+  }
+  hexPath(r0, rot);
+  ctx.fillStyle = '#2c3e50';
+  ctx.fill();
+  ctx.restore();
+};
+
 /** ゲームごとの筐体・立て看板の色と画面の絵 */
 interface GameLook {
   /** 箱の上・暗い面・明るい面 */
@@ -1107,6 +1173,8 @@ interface GameLook {
   /** 上の看板の幅（s = 1 のとき）と字の大きさ */
   topperW: number;
   topperPx: number;
+  /** 上の看板をこの分だけ高く（隣の筐体の看板と重ならないように。Hextris は 2048 の右隣） */
+  topperLift?: number;
   screen: (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, t: number) => void;
   /** 操作盤：台・十字キー・ボタン 2 つ */
   panel: [string, string, string, string];
@@ -1158,6 +1226,30 @@ const GAME_LOOKS: Record<string, GameLook> = {
       name: '#f2ecff',
       empty: 'rgba(242, 236, 255, 0.45)',
       leg: '#4b3c86',
+    },
+  },
+  // Hextris（DESIGN §16.9）：紺の箱・青い看板「HEXTRIS」・画面は六角形のまわりに色のブロック
+  hextris: {
+    top: '#3d566e',
+    dark: '#1b2836',
+    mid: '#2c3e50',
+    accent: '#3498db',
+    signFg: '#ffffff',
+    topperW: 62,
+    topperPx: 12,
+    topperLift: 40,
+    screen: drawScreenHextris,
+    panel: ['#16212c', '#7f8c8d', '#e74c3c', '#f1c40f'],
+    board: {
+      bg: '#ecf0f1',
+      border: '#3498db',
+      head: '#2c3e50',
+      headFg: '#ffffff',
+      stripe: 'rgba(52, 152, 219, 0.12)',
+      score: '#c0392b',
+      name: '#2c3e50',
+      empty: 'rgba(44, 62, 80, 0.45)',
+      leg: '#7f8c8d',
     },
   },
 };
@@ -1236,7 +1328,7 @@ const drawGameCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: GameSpot,
     ctx.fillRect(fw * 0.42, fh * 0.8, fw * 0.16, fh * 0.04);
   });
   // 上の看板（画面に平行。遠くからでも何の台か分かるように）
-  const top = toScreen(v, spot.x + 0.5, spot.y + 0.5, TOPPER_Z);
+  const top = toScreen(v, spot.x + 0.5, spot.y + 0.5, TOPPER_Z + (look.topperLift ?? 0));
   const w = look.topperW * s;
   const h = 19 * s;
   const glow = 0.7 + 0.3 * Math.sin(t / 500 + spot.id);
@@ -1270,7 +1362,7 @@ const drawGameCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: GameSpot,
 /** ゲーム筐体の当たり判定（箱と上の看板） */
 const gameCabinetPoly = (v: View, spot: GameSpot): SP[] => {
   const b = boxAt(v, spot.x, spot.y, GAME_INSET, GAME_H);
-  const top = toScreen(v, spot.x + 0.5, spot.y + 0.5, TOPPER_Z);
+  const top = toScreen(v, spot.x + 0.5, spot.y + 0.5, TOPPER_Z + (lookOf(spot.game).topperLift ?? 0));
   const w = lookOf(spot.game).topperW * v.s;
   const h = 19 * v.s;
   // 箱の輪郭（左手前の下 → 手前の下 → 右の下 → 右の上 → 奥の上 → 左の上）の上に看板の四角を足す
@@ -1596,7 +1688,8 @@ const decorBox = (v: View, d: Decor): Box =>
 
 const drawNameTag = (ctx: CanvasRenderingContext2D, x: number, y: number, s: number, p: ClientPlayer, me: boolean) => {
   // v0.6.0：ゲームの窓を開いている人は名前の横に 🎮
-  const label = `${p.playing ? '🎮 ' : ''}${p.admin ? '★ ' : ''}${p.host ? '［主催］' : ''}${p.name}`;
+  // 観戦（DESIGN §16.10）：見ている人がいれば 👀 と人数
+  const label = `${p.playing ? (p.viewers ? `🎮👀${p.viewers} ` : '🎮 ') : ''}${p.admin ? '★ ' : ''}${p.host ? '［主催］' : ''}${p.name}`;
   const badges = [...(p.badges ?? '')].filter(isSuit);
   let h: number;
   if (!badges.length)
@@ -1987,12 +2080,20 @@ export const drawScene = (
   // 名前・吹き出し・エモーション（手前の人ほど上に）
   const now = performance.now();
   const sorted = [...poses].sort((a, b) => a.x + a.y - (b.x + b.y));
+  /** v0.6.0：遊んでいる人の名札（クリックでその人のプレイを見る。手前の人が先） */
+  const playTags: SceneHits['playTags'] = [];
   for (const pose of sorted) {
     const p = pose.p;
     const me = p.pid === ui.myPid;
     const c = toScreen(v, pose.x + 0.5, pose.y + 0.5);
     let y = c.y - (charTop(p.watching !== null) + 6) * s;
-    y -= drawNameTag(ctx, c.x, y, ts, p, me) + 2 * ts;
+    const th = drawNameTag(ctx, c.x, y, ts, p, me);
+    if (p.playing && !me) {
+      ctx.font = font(11.5 * ts, 700);
+      const w = ctx.measureText(`🎮👀0 ${p.name}${p.badges ?? ''}`).width + 11.5 * ts * 1.4;
+      playTags.unshift({ pid: p.pid, game: p.playing, x: c.x - w / 2, y: y - th, w, h: th });
+    }
+    y -= th + 2 * ts;
     // ふつうの発言の吹き出しが出ている間はそちら、消えたらピン止めの吹き出し（出しっぱなし）
     if (p.bubble) {
       const left = p.bubble.until - now;
@@ -2033,12 +2134,13 @@ export const drawScene = (
       .slice()
       .sort((a, b) => b.x + b.y - (a.x + a.y))
       .map((g) => ({ id: g.id, game: g.game, poly: rankingPoly(v, g) })),
+    playTags,
   };
   // ゲーム筐体・ランキングの立て看板の札（カーソルを置いたとき。v0.6.0）
   if (ui.hoverGame) {
     const g = games.find((x) => x.id === ui.hoverGame);
     if (g) {
-      const top = toScreen(v, g.x + 0.5, g.y + 0.5, TOPPER_Z + 26);
+      const top = toScreen(v, g.x + 0.5, g.y + 0.5, TOPPER_Z + 26 + (lookOf(g.game).topperLift ?? 0));
       const title = gameInfo(g.game)?.title ?? g.game;
       const { h } = pill(ctx, top.x, top.y, `${title}　クリックで遊ぶ`, 10.5 * ts, '#fff', 'rgba(20, 8, 40, 0.92)', GOLD);
       pill(ctx, top.x, top.y - h - 3 * ts, 'スコアはランキングに残ります', 9.5 * ts, '#1a1300', GOLD);

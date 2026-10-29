@@ -1,4 +1,4 @@
-// ゲーム筐体で遊べるゲームの一覧と決まり（v0.6.0。DESIGN §16）。2048 と Columns like game（§16.8）。
+// ゲーム筐体で遊べるゲームの一覧と決まり（v0.6.0。DESIGN §16）。2048 と Columns like game（§16.8）と Hextris（§16.9）。
 // ゲームを足すときは GAMES に足し、floor.json の decor に game / ranking を置き、gameRecord.ts になぞり直しを足し、
 // クライアントの GameDialog（iframe とのやりとり）・render.ts（筐体の画面の絵）に足す。
 
@@ -19,7 +19,12 @@ export const GAMES: readonly GameInfo[] = [
   { id: '2048', title: '2048', page: 'games/2048/index.html', sign: '2048' },
   // 「Columns」はセガのゲームの名前（元のコードは非公式のクローン）なので、画面には「Columns like game」と出す（DESIGN §16.8 ✅ ユーザー指定）
   { id: 'columns', title: 'Columns like game', page: 'games/columns/index.html', sign: 'COLUMNS LIKE' },
+  // Hextris（GNU GPL v3。client/public/games/hextris/ のフォルダだけ GPLv3。DESIGN §16.9）。記録はブラウザの申告（なぞり直さない）
+  { id: 'hextris', title: 'Hextris', page: 'games/hextris/index.html', sign: 'HEXTRIS' },
 ];
+
+/** 記録をサーバがなぞり直さない（ブラウザの申告の）ゲーム。ランキングの窓に注意書きを出す */
+export const SELF_REPORTED_GAMES: readonly string[] = ['hextris'];
 
 export const isGameId = (v: unknown): v is string => typeof v === 'string' && GAMES.some((g) => g.id === v);
 export const gameInfo = (id: string): GameInfo | undefined => GAMES.find((g) => g.id === id);

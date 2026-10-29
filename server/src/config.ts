@@ -10,6 +10,7 @@ import {
   DEFAULT_POSTER_MAX_TOTAL,
   NOTE_MAX_TOTAL,
   REQUEST_MAX_TOTAL,
+  SPECTATE_DEFAULTS,
   type BadgeMode,
   type CraneOdds,
 } from '@va/shared';
@@ -106,6 +107,21 @@ export interface Config {
   chatTtlMs: number;
   /** 時計（テスト用に差し替える。既定 Date.now） */
   now?: () => number;
+  /** v0.6.0：ほかの人のプレイを見る（観戦。DESIGN §16.10） */
+  spectate: SpectateConfig;
+}
+
+export interface SpectateConfig {
+  /** SPECTATE=off で観戦をまるごと止める */
+  enabled: boolean;
+  /** 1 人を見られる人数（SPECTATE_MAX_VIEWERS） */
+  maxViewers: number;
+  /** 画像を送るのは 1 秒に何枚まで（SPECTATE_FPS） */
+  fps: number;
+  /** 同時に見られている人（遊んでいる人）の合計（SPECTATE_MAX_STREAMS） */
+  maxStreams: number;
+  /** 1 枚の画像の大きさの上限（バイト） */
+  frameMaxBytes: number;
 }
 
 const int = (v: string | undefined, fb: number, min: number, max: number): number => {
@@ -182,5 +198,12 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
     chatMinIntervalMs: 1000,
     emoteMinIntervalMs: 800,
     chatTtlMs: int(env.CHAT_TTL_HOURS, 24, 1, 24 * 365) * 60 * 60 * 1000,
+    spectate: {
+      enabled: (env.SPECTATE ?? '').trim().toLowerCase() !== 'off',
+      maxViewers: int(env.SPECTATE_MAX_VIEWERS, SPECTATE_DEFAULTS.maxViewers, 1, 50),
+      fps: int(env.SPECTATE_FPS, SPECTATE_DEFAULTS.fps, 1, 10),
+      maxStreams: int(env.SPECTATE_MAX_STREAMS, SPECTATE_DEFAULTS.maxStreams, 1, 100),
+      frameMaxBytes: SPECTATE_DEFAULTS.frameMaxBytes,
+    },
   };
 };
