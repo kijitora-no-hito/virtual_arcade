@@ -2,7 +2,7 @@
 
 ブラウザから入れる、クオータービュー（斜め見下ろし）のバーチャルなゲームセンターです。自分のキャラクターで店内を歩き、チャットとエモーションでやりとりし、
 ゲームの筐体に YouTube の配信 URL と宣伝を設定して「どこで何が配信されているか」を店内を歩いて見て回れます。
-クレーンゲーム・2048 のゲーム筐体とスコアランキング・大会やイベントのポスターを貼る掲示板・コミュニケーションノート・機能追加要望箱・店内の BGM もあります。PC とスマホの両方で遊べます。
+クレーンゲーム・2048 と Columns like game（コラムス風の落ち物パズル）のゲーム筐体とスコアランキング・大会やイベントのポスターを貼る掲示板・コミュニケーションノート・機能追加要望箱・店内の BGM もあります。PC とスマホの両方で遊べます。
 
 - 作り：Node.js 22.13 以降（`node:sqlite`）・Express・WebSocket（`ws`）・SQLite・React + Vite・Canvas 2D（TypeScript、npm workspaces）
 - すぐ試す：
@@ -16,7 +16,7 @@
 - 自分のサーバ（Apache のリバースプロキシの下）に置く手順：[deploy/INSTRUCTIONS.md](deploy/INSTRUCTIONS.md)
 - 仕様：[docs/DESIGN.md](docs/DESIGN.md)
 - ライセンス：**MIT**（[LICENSE](LICENSE)）。店内の BGM の曲のファイルはリポジトリに入っていません（[data/bgm/README.md](data/bgm/README.md)。曲が無くても合成のオリジナル曲が流れます）。
-  同梱している第三者のもの（2048・字体 Clear Sans）は下の「[同梱している第三者のもの](#同梱している第三者のもの)」。
+  同梱している第三者のもの（2048・字体 Clear Sans・columns・字体 Laila）は下の「[同梱している第三者のもの](#同梱している第三者のもの)」。
 
 ---
 
@@ -26,7 +26,7 @@
 ゲームの筐体（16 台）には YouTube の配信 URL と宣伝（イベント名・ゲーム名・プレイヤー名・備考）を設定でき、どこで何が配信されているかが店内を歩いて分かる。
 店内には BGM が流れます（v0.2.0）。店の端のクレーンゲームでトランプのマークのバッジを取ったり、掲示板に大会・イベントのポスターを貼ったり、自分の発言を 1 つピン止めしたりできます（v0.3.0）。入口の近くのコミュニケーションノートにひとこと書いたり、要望箱から管理者に要望を送ったりもできます（v0.4.0）。
 いつもの店（オープン部屋）のほかに、時間を予約して合言葉で入る**予約部屋**を 1 つ立てられます（v0.5.0）。
-**2048 のゲーム筐体**で遊べて、点数は店内の立て看板と窓の**ランキング**に残ります。エモーションに**ベガ立ち**（動くまで腕を組む）も足しました（v0.6.0）。
+**2048** と **Columns like game**（コラムス風の落ち物パズル）のゲーム筐体で遊べて、点数は店内の立て看板と窓の**ランキング**に残ります。エモーションに**ベガ立ち**（動くまで腕を組む）も足しました（v0.6.0）。
 Web アプリ（PC・1920×1080 向け。**v0.4.0 からスマホのレイアウト**もあり、スマホで開くと自動で切り替わる）。自分のサーバの `/arcade/` などのパスに置ける（例 `https://example.com/arcade/`）。仕様は [docs/DESIGN.md](docs/DESIGN.md)。
 
 ## 起動（自分の PC で）
@@ -128,6 +128,12 @@ systemd は [deploy/virtual-arcade.service](deploy/virtual-arcade.service)、Apa
 16. **ランキング**（v0.6.0）：2048 の筐体の隣の立て看板に総合の上位 5 人。クリック（遠くても歩かずに）か、2048 の窓の［🏆 ランキング］で、
    **総合**・**今月**（日本時間の月）の上位 50 人と自分の順位。1 人 1 行（いちばん良い記録）、同じ点数は先に出した人が上。
    自己ベストで総合 10 位以内か今月 3 位以内に入ると、チャットに案内が流れます。管理者は不適切な名前の記録を 1 行ずつ消せます。
+   ランキングの窓は上のタブでゲーム（2048 / Columns like game）を切り替えます。
+17. **Columns like game**（v0.6.0）：配信用の筐体の手前の列の右端（16 番）の隣に、紫の「COLUMNS LIKE」の看板の筐体があります（隣にそのランキングの立て看板）。
+   縦 3 つの宝石を落として、同じ色を縦・横・斜めに 3 つ以上そろえて消す落ち物パズルです。窓の中の［Play］で始まり、← → で動かす・↑ で色を回す・↓ で速く・スペースで落とす・Enter で一時停止
+   （スマホは下の Left / Swap / Drop / Right のボタン）。窓の外をクリックすると一時停止します。
+   ランキングに載るのは Options が Standard・Colors 5・Height 0 のときです（開始の Level は自由。ランキングに開始レベルも出ます）。ほかの設定は練習（記録しません）。
+   点数は、サーバが渡した種と「どのピースをどの列に何回回して置いたか」の記録をサーバがなぞり直して決めます（ゲームオーバー・Reset・窓を閉じる・退店のときに記録。途中でやめてもそこまでの点数）。
 
 ### スマホで遊ぶ（v0.4.0）
 
@@ -145,6 +151,10 @@ systemd は [deploy/virtual-arcade.service](deploy/virtual-arcade.service)、Apa
 - **2048**（`client/public/games/2048/`）：<https://github.com/gabrielecirulli/2048>（コミット `478b6ec`）。**MIT License**、© 2014 Gabriele Cirulli。
   著作権表示と許諾文は同じフォルダの `LICENSE.txt`。ゲーム筐体の窓の中で動かすために変えた所（乱数を種から作る・親の窓とのやりとり・途中の盤を保存しない・説明文と出典）は `CHANGES.md`。
 - **Clear Sans**（2048 の字体。`client/public/games/2048/style/fonts/` の woff）：© 2012 Intel Corporation、**Apache License 2.0**（本文は同じフォルダの `LICENSE-ClearSans.txt`）。
+- **columns**（`client/public/games/columns/`。店では「Columns like game」）：<https://github.com/jcfieldsdev/columns>（コミット `8c6f90c`）。**MIT License**、© 2020 J.C. Fields。
+  著作権表示と許諾文は `columns.js` の先頭と同じフォルダの `LICENSE.md`。変えた所（宝石の色・乱数を種から作る・親の窓とのやりとり・↓ の点の不具合の修正・保存しない・写真と字体 Dalek Pinpoint を入れない・窓に収める）は `CHANGES.md`。
+  「Columns」はセガのゲームの名前で、元のコードは非公式のクローンです。このアプリはセガとは関係ありません。
+- **Laila**（columns の字体。`client/public/games/columns/layout/fonts/` の woff2）：© 2014 Indian Type Foundry、**SIL Open Font License 1.1**（本文は同じフォルダの `OFL-Laila.txt`）。
 
 ## 店内の BGM について
 

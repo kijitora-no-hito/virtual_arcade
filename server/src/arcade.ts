@@ -5,10 +5,8 @@
 
 import crypto from 'node:crypto';
 import {
-  countMoves,
+  checkGameRecord,
   formatScore,
-  GAME_MAX_MOVES,
-  GAME_MOVE_MIN_MS,
   GAME_NEAR,
   GAME_SESSION_TTL_MS,
   GAMES,
@@ -17,11 +15,11 @@ import {
   isGameId,
   isRankingPeriod,
   jstMonthStart,
-  MOVES_RE,
   RANKING_ANNOUNCE,
   RANKING_LIST_MAX,
   RANKING_POSTER_TOP,
-  replay2048,
+  parseGameOptions,
+  type GameOptions,
   type GameFinishResponse,
   type GameStartResponse,
   type RankingEntry,
@@ -143,6 +141,10 @@ interface GameSession {
   game: string;
   seed: number;
   startedAt: number;
+  /** 始めたときの設定（Columns like game のオプション。2048 は null） */
+  options: GameOptions;
+  /** 練習（ランキングに載らない設定。記録しない） */
+  practice: boolean;
 }
 
 /** 部屋ごとの状態（v0.5.0。DESIGN §14）：チャット・お知らせ・筐体・クレーンゲームのケースと待ち時間 */
@@ -1399,9 +1401,12 @@ export class Arcade {
   }
 
   /** 始める：店内にいて、そのゲームの筐体に 2 マス以内。種とセッションを渡す（前のセッションは消える） */
-  startGame(keyHash: string | null, rawGame: unknown): GameStartResponse {
+  startGame(keyHash: string | null, rawGame: unknown, input?: unknown): GameStartResponse {
     const p = this.requireOnline(keyHash);
     const game = this.requireGame(rawGame);
+    const body = (input && typeof input === 'object' ? input : {}) as { options?: unknown };
+    const opt = parseGameOptions(game, body.options);
+    if (!opt) throw new ArcadeError(400, 'ゲームの設定が正しくありません', 'bad-input');
     const at = this.tileOf(p);
     if (!gameSpots(FLOOR, game).some((s) => cabinetDistance(at, s) <= GAME_NEAR))
       throw new ArcadeError(409, 'ゲームの筐体の近くまで行ってから遊んでください', 'too-far');
@@ -1411,9 +1416,17 @@ export class Arcade {
       // 種は推測できない乱数（テストでは cfg.rng で決める）
       seed: this.cfg.rng ? Math.floor(this.cfg.rng() * 2 ** 32) >>> 0 : crypto.randomBytes(4).readUInt32LE(0),
       startedAt: this.now(),
+      options: opt.options,
+      practice: opt.practice,
     };
     this.gameSessions.set(p.keyHash, sess);
-    return { session: sess.id, seed: sess.seed, best: this.store.bestScoreOf(game, p.keyHash) };
+    return {
+      session: sess.id,
+      seed: sess.seed,
+      best: this.store.bestScoreOf(game, p.keyHash),
+      ...(opt.practice ? { practice: true } : {}),
+      ...(opt.options ? { options: opt.options } : {}),
+    };
   }
 
   /** 24 時間たったセッションを消す */
@@ -1430,30 +1443,33 @@ export class Arcade {
     const k = this.requireKey(keyHash);
     const game = this.requireGame(rawGame);
     this.expireGameSessions();
-    const body = (input && typeof input === 'object' ? input : {}) as { session?: unknown; moves?: unknown };
+    const body = (input && typeof input === 'object' ? input : {}) as { session?: unknown; moves?: unknown; over?: unknown };
     const sess = this.gameSessions.get(k);
     if (!sess || sess.id !== body.session || sess.game !== game)
       throw new ArcadeError(409, 'このゲームは記録できませんでした（サーバが再起動したか、別の画面で新しいゲームを始めたため）', 'no-session');
     this.gameSessions.delete(k);
-    const moves = body.moves;
-    if (typeof moves !== 'string' || moves.length > GAME_MAX_MOVES + 1 || !MOVES_RE.test(moves))
-      throw new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
-    const n = countMoves(moves);
     const ms = this.now() - sess.startedAt;
-    if (n > GAME_MAX_MOVES) throw new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
-    if (ms < n * GAME_MOVE_MIN_MS) throw new ArcadeError(400, '手が速すぎるので、このゲームは記録しませんでした', 'too-fast');
-    const r = replay2048(sess.seed, moves);
-    if (!r.ok) throw new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
+    // 練習の設定（Columns like game の Standard・5 色・Height 0 以外）は記録しない（なぞり直しもしない）
+    if (sess.practice)
+      return { recorded: false, practice: true, score: 0, maxTile: 0, moves: 0, best: this.store.bestScoreOf(game, k), newBest: false, rank: this.ranksOf(game, k) };
+    // ゲームごとのなぞり直し（gameRecord.ts。速すぎる・おかしな記録は断る）
+    const r = checkGameRecord(game, sess.seed, sess.options, body as Record<string, unknown>, ms);
+    if (!r.ok)
+      throw r.code === 'too-fast'
+        ? new ArcadeError(400, game === '2048' ? '手が速すぎるので、このゲームは記録しませんでした' : '速すぎるので、このゲームは記録しませんでした', 'too-fast')
+        : new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
+    const n = r.moves;
     const monthStart = jstMonthStart(this.now());
     const oldBest = this.store.bestScoreOf(game, k);
     const oldMonth = this.store.bestScoreOf(game, k, monthStart);
+    const detail = r.detail ? { detail: r.detail } : {};
     if (r.score <= 0)
-      return { recorded: false, score: 0, maxTile: r.maxTile, moves: n, best: oldBest, newBest: false, rank: this.ranksOf(game, k) };
+      return { recorded: false, score: 0, maxTile: r.maxTile, moves: n, best: oldBest, newBest: false, rank: this.ranksOf(game, k), ...detail };
     const u = this.store.getUser(k);
     const p = this.online.get(k);
     const name = p?.name ?? u?.name ?? '？';
     const before = JSON.stringify(this.rankingTop(game));
-    this.store.addGameScore({ game, at: this.now(), keyHash: k, pid: p?.pid ?? u?.pid ?? '', name, score: r.score, maxTile: r.maxTile, moves: n, ms });
+    this.store.addGameScore({ game, at: this.now(), keyHash: k, pid: p?.pid ?? u?.pid ?? '', name, score: r.score, maxTile: r.maxTile, moves: n, ms, detail: r.detail });
     const rank = this.ranksOf(game, k);
     const newBest = r.score > oldBest;
     // 自己ベストで総合 10 位以内・今月の自己ベストで今月 3 位以内なら、その人のいる部屋のチャットに案内
@@ -1463,11 +1479,11 @@ export class Arcade {
     if (parts.length)
       this.addChat(this.roomOf(k), 'system', null, null, `🏆 ${name} さんが ${gameInfo(game)?.title ?? game} で ${formatScore(r.score)} 点！（${parts.join('・')}）`);
     this.broadcastRanking(game, before);
-    return { recorded: true, score: r.score, maxTile: r.maxTile, moves: n, best: Math.max(oldBest, r.score), newBest, rank };
+    return { recorded: true, score: r.score, maxTile: r.maxTile, moves: n, best: Math.max(oldBest, r.score), newBest, rank, ...detail };
   }
 
   private entry(r: GameScoreRow, rank: number): RankingEntry {
-    return { id: r.id, rank, name: r.name, score: r.score, maxTile: r.maxTile, at: r.at };
+    return { id: r.id, rank, name: r.name, score: r.score, maxTile: r.maxTile, at: r.at, ...(r.detail ? { detail: r.detail } : {}) };
   }
 
   /** 立て看板に描く上位（総合） */

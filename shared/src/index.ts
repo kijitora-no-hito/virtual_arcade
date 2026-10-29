@@ -13,3 +13,5 @@ export * from './notes';
 export * from './rooms';
 export * from './games';
 export * from './game2048';
+export * from './columns';
+export * from './gameRecord';

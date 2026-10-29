@@ -1,0 +1,748 @@
+@font-face {
+	font-family: Laila;
+	font-style: normal;
+	font-weight: normal;
+	src: url(fonts/Laila-Regular.woff2) format("woff2");
+}
+
+@font-face {
+	font-family: Laila;
+	font-style: normal;
+	font-weight: 700;
+	src: url(fonts/Laila-Medium.woff2) format("woff2");
+}
+
+@font-face {
+	font-family: Laila;
+	font-style: normal;
+	font-weight: 900;
+	src: url(fonts/Laila-Bold.woff2) format("woff2");
+}
+
+/* va: 字体 Dalek Pinpoint は同梱しない（見出しは Laila の太字）。Laila は SIL Open Font License 1.1（fonts/OFL-Laila.txt） */
+
+@keyframes pulsate {
+	0% {
+		color: #fff;
+	}
+
+	50% {
+		color: #ff8080;
+	}
+
+	100% {
+		color: #fff;
+	}
+}
+
+@keyframes plop {
+	from {
+		opacity: 0;
+		transform: scale(2);
+	}
+
+	to {
+		opacity: 1;
+		transform: unset;
+	}
+}
+
+@keyframes slide {
+	0% {
+		bottom: 75%;
+		opacity: 0;
+	}
+
+	25% {
+		bottom: 100%;
+		opacity: 1;
+	}
+
+	75% {
+		opacity: 1;
+	}
+
+	100% {
+		opacity: 0;
+	}
+}
+
+* {
+	touch-action: manipulation;
+}
+
+a {
+	background: none;
+	color: #fff;
+	cursor: pointer;
+	font-weight: 900;
+	text-decoration: underline;
+}
+
+body {
+	display: grid;
+	grid-column-gap: 0;
+	grid-row-gap: 0;
+	grid-template-areas:
+		"next  main header"
+		"next  main menu"
+		"stats main menu"
+		"stats main footer";
+	grid-template-columns: 30% 40% 30%;
+	grid-template-rows: 20% 20% 40% 20%;
+	margin: 0;
+	padding: 0;
+}
+
+body, html, main {
+	height: 100%;
+}
+
+button {
+	background: rgba(192, 192, 192, 0.75);
+	border: 1px solid #a0a0a0;
+	color: #000;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	margin: 0.25em 0;
+	padding: 0.15em;
+	text-shadow: 1px 1px #808080;
+	width: 10em;
+}
+
+button, input[type="text"] {
+	font-family: inherit;
+	font-size: 1.25rem;
+	text-align: center;
+}
+
+button:disabled {
+	color: #808080;
+}
+
+button:hover:not(:disabled) {
+	background: #c0c0c0;
+	color: #000;
+	cursor: pointer;
+}
+
+button#reset {
+	margin-top: 1.5em;
+}
+
+canvas#grid {
+	background: rgba(0, 0, 0, 0.75);
+	color: inherit;
+	z-index: 1;
+}
+
+canvas#well {
+	z-index: 2;
+}
+
+dd {
+	background: rgba(0, 0, 0, 0.5);
+	border: 1px solid #404040;
+	color: inherit;
+	margin-left: 1em;
+	padding: 0.25em 0.5em;
+	text-align: right;
+	width: 8em;
+}
+
+dd#time.flash {
+	animation: 1s pulsate infinite;
+}
+
+div#author {
+	margin-top: 1em;
+}
+
+div#controls {
+	grid-area: controls;
+}
+
+div#controls, div#menu, div#next, div#stats, footer, header, main {
+	align-self: center;
+	justify-self: center;
+}
+
+div#controls, div#prompt *:disabled, html.gradient div#credit {
+	display: none;
+}
+
+div#controls, div.overlay, td.jewels, td.level {
+	text-align: center;
+}
+
+div#controls button {
+	background: none;
+	border: 1px solid #fff;
+	color: #fff;
+	height: 8em;
+	margin: 0;
+	text-shadow: 1px 1px #000;
+	width: 8em;
+}
+
+div#gameover, div#overlay_pause {
+	font-size: 3rem;
+	letter-spacing: 0.25em;
+	text-shadow: 3px 3px #000;
+	text-transform: uppercase;
+}
+
+div#next, div#stats {
+	font-size: 2rem;
+	line-height: 125%;
+}
+
+div#menu {
+	grid-area: menu;
+}
+
+div#next {
+	font-size: 1.5rem;
+	font-weight: 900;
+	grid-area: next;
+	margin: 1em;
+	padding: 1em 0 2em;
+	text-align: center;
+	text-shadow: 2px 2px #000;
+	text-transform: uppercase;
+	width: 50%;
+}
+
+div#next div {
+	margin: 1em auto;
+}
+
+div#overlay_gameover button, div#overlay_gameover input {
+	width: 12em;
+}
+
+div#overlay_gameover div, div#overlay_options div {
+	margin: 1em;
+}
+
+div#overlay_gameover table, div#overlay_options, div#overlay_scores {
+	background: rgba(0, 96, 96, 0.5);
+	box-shadow: 3px 3px #000;
+	color: inherit;
+	padding: 2em;
+}
+
+div#overlay_options th, th.name {
+	text-align: left;
+}
+
+div#points {
+	animation: 2s slide;
+	background: none;
+	bottom: 100%;
+	color: #ff8040;
+	font-weight: 700;
+	left: 100%;
+	opacity: 0;
+	position: absolute;
+	text-align: right;
+}
+
+div#prompt, table {
+	white-space: nowrap;
+}
+
+div#select {
+	display: flex;
+	justify-content: space-between;
+}
+
+div#stats {
+	grid-area: stats;
+	position: relative;
+}
+
+div.overlay {
+	display: none;
+	left: 50%;
+	top: 50%;
+	position: absolute;
+	transform: translate(-50%, -50%);
+	z-index: 3;
+}
+
+div.overlay table {
+	margin: 1em auto;
+	width: 100%;
+}
+
+div.overlay.open {
+	display: block;
+}
+
+dt {
+	background: none;
+	color: #c0c0ff;
+	margin-top: 1em;
+}
+
+dt, h1 {
+	font-family: Laila, Helvetica, sans-serif; /* va: Dalek Pinpoint の代わり */
+	font-weight: 900;
+	text-shadow: 2px 2px #000;
+}
+
+footer {
+	grid-area: footer;
+}
+
+h1 {
+	background: none;
+	color: #ffc000;
+	font-size: 2.6rem; /* va: 名前が長くなったので小さく（元は 4rem） */
+	font-weight: bold;
+	line-height: 100%;
+	margin: 0;
+}
+
+header {
+	grid-area: header;
+}
+
+html {
+	background-attachment: fixed;
+	background-color: #000;
+	background-size: cover;
+	color: #fff;
+	font: 12pt/200% Laila, Helvetica, sans-serif;
+	padding: 0;
+	text-shadow: 1px 1px #000;
+}
+
+html.gradient button {
+	box-shadow: 1px 1px 4px 0 #000;
+}
+
+html.gradient canvas#grid, html.gradient dd {
+	box-shadow: 2px 2px 8px 0 #000;
+}
+
+html.gradient div#controls button {
+	background: rgba(192, 192, 192, 0.75);
+	color: #000;
+}
+
+html.gradient div#overlay_gameover table, html.gradient div#overlay_options, html.gradient div#overlay_scores {
+	background: #000;
+	box-shadow: 2px 2px 8px #000;
+	color: inherit;
+}
+
+html.gradient dt {
+	background: none;
+	color: #fff;
+}
+
+html.gradient h1 {
+	background: none;
+	color: #ff0;
+}
+
+html.photograph body {
+	background: radial-gradient(ellipse at center,
+		rgba(0, 0, 0, 0) 0%,
+		rgba(0, 0, 0, 0) 67%,
+		rgba(0, 0, 0, 0.75) 100%);
+	color: inherit;
+}
+
+input[type="range"] {
+	background: transparent;
+	color: #fff;
+	width: 30em;
+	-webkit-appearance: none;
+}
+
+input[type="range"]:focus {
+	outline: 0;
+}
+
+input[type="range"]::-moz-range-thumb {
+	background: #c0c0c0;
+	border-radius: 100%;
+	color: #404040;
+	height: 2em;
+	width: 2em;
+}
+
+input[type="range"]::-moz-range-track {
+	background: #404040;
+	border-radius: 0.25em;
+	height: 0.5em;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+	background: #404040;
+	border-radius: 0.25em;
+	height: 0.5em;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+	background: #c0c0c0;
+	border-radius: 100%;
+	color: #404040;
+	height: 2em;
+	margin-top: -0.75em;
+	width: 2em;
+	-webkit-appearance: none;
+}
+
+input[type="text"] {
+	background: #000;
+	border: 2px solid #808080;
+	color: #fff;
+}
+
+input[type="text"]::placeholder {
+	background: none;
+	color: #808080;
+	font-style: italic;
+}
+
+label {
+	user-select: none;
+	-moz-user-select: none;
+	-webkit-user-select: none;
+}
+
+main {
+	grid-area: main;
+	position: relative;
+}
+
+main canvas {
+	height: 100%;
+	left: 50%;
+	position: absolute;
+	top: 0;
+	transform: translateX(-50%);
+	width: auto;
+}
+
+select {
+	background: #000;
+	border: 1px solid #fff;
+	border-radius: 1.25em;
+	color: inherit;
+	font: inherit;
+	min-width: 4em;
+	padding: 0 0.5em;
+	text-align: center;
+	-moz-appearance: none;
+	-webkit-appearance: none;
+}
+
+td.jewels, td.score, td.time, th.score {
+	text-align: right;
+}
+
+td.show {
+	width: 2em;
+}
+
+th {
+	font-weight: 700;
+	letter-spacing: 0.25em;
+	text-transform: uppercase;
+	text-align: center;
+}
+
+tr.latest td {
+	animation: 1s plop;
+}
+
+@media (orientation: landscape) {
+	@media (max-width: 1600px) {
+		html {
+			font-size: 10pt;
+		}
+	}
+
+	@media (max-width: 1366px) {
+		dt, h1 {
+			text-shadow: 1px 1px #000;
+		}
+
+		html {
+			font-size: 8pt;
+		}
+	}
+
+	@media (max-width: 1112px) {
+		body {
+			grid-template-areas:
+				"stats main next"
+				"stats main menu"
+				".     main .";
+			grid-template-rows: 40% 20% 40%;
+		}
+
+		button#drop {
+			right: 12em;
+		}
+
+		button#left {
+			left: 1em;
+		}
+
+		button#right {
+			right: 1em;
+		}
+
+		button#swap {
+			left: 12em;
+		}
+
+		div#controls {
+			display: block;
+		}
+
+		div#controls button {
+			bottom: 1em;
+			height: 10em;
+			position: absolute;
+			width: 10em;
+		}
+
+		div.overlay {
+			font-size: 1.5rem;
+			line-height: 250%;
+		}
+
+		footer, header {
+			display: none;
+		}
+	}
+
+	@media (max-width: 736px) {
+		button, input {
+			font-size: 1.5rem;
+		}
+
+		div#overlay_gameover {
+			background: rgba(0, 0, 0, 0.5);
+			color: inherit;
+			padding: 0 1em;
+		}
+
+		div#prompt {
+			display: flex;
+		}
+
+		html {
+			font-size: 5pt;
+		}
+	}
+
+	@media (max-width: 568px) {
+		html {
+			font-size: 4pt;
+		}
+	}
+}
+
+@media (orientation: portrait) {
+	body {
+		grid-template-areas:
+			"menu     menu"
+			"next     main"
+			"stats    main"
+			"controls controls";
+		grid-template-columns: 33% 67%;
+		grid-template-rows: 10% 25% 45% 20%;
+	}
+
+	button {
+		margin-left: 0.5em;
+	}
+
+	button, input[type="text"] {
+		font-size: 1.75rem;
+	}
+
+	button#reset {
+		margin-left: 1.5em;
+		margin-top: 0.25em;
+	}
+
+	main canvas {
+		height: 90%;
+		top: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	div#controls {
+		display: flex;
+		justify-content: space-between;
+		width: 100%;
+	}
+
+	div#controls button#left {
+		margin-left: 1em;
+	}
+
+	div#controls button#right {
+		margin-right: 1em;
+	}
+
+	div#menu div {
+		float: left;
+	}
+
+	div#overlay_gameover {
+		background: rgba(0, 0, 0, 0.5);
+		color: inherit;
+		padding: 0 1em;
+	}
+
+	div#points, footer, header {
+		display: none;
+	}
+
+	div.overlay {
+		font-size: 2rem;
+		line-height: 250%;
+	}
+
+	html {
+		font-size: 10pt;
+	}
+
+	@media (max-width: 834px) {
+		div#menu button {
+			font-size: 1.5rem;
+		}
+
+		html {
+			font-size: 9pt;
+		}
+	}
+
+	@media (max-width: 768px) {
+		html {
+			font-size: 8pt;
+		}
+	}
+
+	@media (max-width: 414px) {
+		div#gameover, div#overlay_pause {
+			font-size: 4rem;
+			text-shadow: inherit;
+		}
+
+		dt {
+			background: none;
+			color: #fff;
+		}
+
+		html {
+			font-size: 4pt;
+		}
+
+		input[type="range"] {
+			width: 20em;
+		}
+	}
+
+	@media (max-width: 320px) {
+		html {
+			font-size: 3pt;
+		}
+	}
+}
+/* va: バーチャルゲームセンターで足した説明 */
+div.va-note {
+	color: #ffe680;
+	font-size: 0.9rem;
+	line-height: 150%;
+	white-space: normal;
+}
+
+div#va_help {
+	font-size: 0.85rem;
+	line-height: 150%;
+	margin-bottom: 0.5em;
+}
+
+/* va: バーチャルゲームセンターの窓（iframe）に収める調整 */
+/* 井戸は枠に収まる大きさに（元は高さだけで決めていたので、縦長の狭い画面で右にはみ出した）。
+   枠（main）は中身が絶対位置の canvas だけで幅が 0 になるので、列の幅いっぱいに広げる */
+main {
+	justify-self: stretch;
+	width: 100%;
+}
+
+main canvas {
+	height: auto;
+	max-height: 100%;
+	max-width: 100%;
+	width: auto;
+}
+
+/* マウスで遊ぶ画面では下の大きなボタン（指で遊ぶため）を出さない */
+@media (hover: hover) and (pointer: fine) {
+	div#controls {
+		display: none !important;
+	}
+}
+
+/* 窓の中の横長（PC）：見出しは窓にあるので出さず、出典と操作の説明は右下に */
+@media (orientation: landscape) and (max-width: 1112px) {
+	body {
+		grid-template-areas:
+			"stats main next"
+			"stats main menu"
+			"stats main footer";
+	}
+
+	footer {
+		display: block;
+		font-size: 0.85rem;
+		line-height: 150%;
+		padding: 0 1em;
+		text-align: center;
+	}
+}
+
+/* 窓の中の縦長（スマホ）：いちばん下に出典の 1 行 */
+@media (orientation: portrait) {
+	body {
+		grid-template-areas:
+			"menu     menu"
+			"next     main"
+			"stats    main"
+			"controls controls"
+			"footer   footer";
+		grid-template-rows: 9% 24% 44% 18% 5%;
+	}
+
+	main canvas {
+		max-height: 94%;
+		max-width: 94%;
+	}
+
+	header, div#va_help {
+		display: none;
+	}
+
+	footer {
+		display: block;
+		font-size: 1.1rem;
+		line-height: 130%;
+		text-align: center;
+	}
+
+	div#author {
+		margin-top: 0;
+	}
+}

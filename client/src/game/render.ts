@@ -982,7 +982,7 @@ const drawCalendar = (ctx: CanvasRenderingContext2D, v: View, d: Decor) => {
 
 // ---------------------------------------------------------------- ゲーム筐体とランキングの立て看板（v0.6.0。DESIGN §16）
 
-/** 2048 の筐体：配信用の筐体（CAB_H 84）より少し高く、画面を大きく */
+/** ゲーム筐体：配信用の筐体（CAB_H 84）より少し高く、画面を大きく */
 const GAME_INSET = 0.06;
 const GAME_H = 96;
 /** 筐体の上の看板（画面に平行な板）の高さ */
@@ -1009,14 +1009,182 @@ const DEMO_BOARDS = [
   [2, 0, 2, 0, 8, 4, 0, 0, 32, 16, 4, 2, 2048, 128, 32, 4],
 ];
 
+/** 2048 の画面：盤の地 #bbada0 に 4×4 のタイル（3 つの盤を順に） */
+const drawScreen2048 = (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, t: number) => {
+  ctx.fillStyle = '#bbada0';
+  ctx.fillRect(sx, sy, sw, sh);
+  const demo = DEMO_BOARDS[Math.floor(t / 1600) % DEMO_BOARDS.length];
+  const gap = Math.max(0.6, sw * 0.03);
+  const cw = (sw - gap * 5) / 4;
+  const ch = (sh - gap * 5) / 4;
+  for (let r = 0; r < 4; r++)
+    for (let c = 0; c < 4; c++) {
+      const n = demo[r * 4 + c];
+      ctx.fillStyle = n ? TILE_COLORS[n] : 'rgba(238, 228, 218, 0.35)';
+      ctx.fillRect(sx + gap + c * (cw + gap), sy + gap + r * (ch + gap), cw, ch);
+    }
+};
+
+/** Columns like game の宝石の色（client/public/games/columns/columns.js の COLORS の明るい方。5 色の分） */
+const JEWELS = ['#ff7ac6', '#7cc4ff', '#d8ff6b', '#ffd47a', '#d29bff'];
+/** 筐体の画面の井戸（6 列 × 9 段。下から。-1 は空き）。ゲームの画面らしく見せるだけ */
+const COLUMNS_DEMO = [
+  [0, 3, 1, 4, 2, 1],
+  [2, 3, 3, 3, 1, 0],
+  [4, 0, 2, 1, 3, 2],
+  [1, 4, 3, 2, 4, -1],
+  [3, 2, -1, -1, 0, -1],
+  [-1, 1, -1, -1, -1, -1],
+];
+/** 落ちてくるピース（縦 3 つ）の色の組。1 回ごとに次の組 */
+const COLUMNS_PIECES = [
+  [1, 3, 0],
+  [4, 2, 2],
+  [0, 1, 3],
+  [3, 4, 1],
+];
+
+/** Columns like game の画面：黒い井戸に宝石が積もり、縦 3 つのピースが落ちてきて、ときどき並びが光って消える */
+const drawScreenColumns = (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, t: number) => {
+  ctx.fillStyle = '#0c0820';
+  ctx.fillRect(sx, sy, sw, sh);
+  const cols = 6;
+  const rows = 9;
+  const cw = sw / cols;
+  const ch = sh / rows;
+  // 井戸の縦の線
+  ctx.fillStyle = 'rgba(120, 110, 170, 0.22)';
+  for (let c = 1; c < cols; c++) ctx.fillRect(sx + c * cw - 0.25, sy, 0.5, sh);
+  const gem = (c: number, r: number, color: string, glow = 0) => {
+    const x = sx + c * cw + cw * 0.08;
+    const y = sy + sh - (r + 1) * ch + ch * 0.08;
+    const w = cw * 0.84;
+    const h = ch * 0.84;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.35 + glow * 0.6})`;
+    ctx.fillRect(x, y, w * 0.45, h * 0.3);
+    if (glow > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${glow * 0.7})`;
+      ctx.fillRect(x, y, w, h);
+    }
+  };
+  // 4.2 秒で 1 回：ピースが列 3 の上まで落ちる → 1 秒ほど 2 段目の 3 つ（2,1,4 列…）が光る
+  const cycle = 4200;
+  const k = Math.floor(t / cycle);
+  const ph = (t % cycle) / cycle;
+  const flash = ph > 0.72 ? Math.max(0, Math.sin(((ph - 0.72) / 0.28) * Math.PI * 3)) : 0;
+  for (let r = 0; r < COLUMNS_DEMO.length; r++)
+    for (let c = 0; c < cols; c++) {
+      const j = COLUMNS_DEMO[r][c];
+      if (j < 0) continue;
+      // 下から 2 段目の左の 3 つを、そろって消える宝石に見せる
+      const lit = r === 1 && c >= 1 && c <= 3 ? flash : 0;
+      gem(c, r, JEWELS[j], lit);
+    }
+  const piece = COLUMNS_PIECES[k % COLUMNS_PIECES.length];
+  const landed = 4; // 列 3 の積もった宝石の上（下から 5 段目）
+  const fall = Math.min(1, ph / 0.7);
+  const top = rows + 1 - (rows + 1 - (landed + 3)) * fall; // いちばん上の宝石の段（下から）
+  for (let i = 0; i < 3; i++) {
+    const r = top - 1 - i;
+    if (r < rows && r >= landed) gem(3, r, JEWELS[piece[i]]);
+  }
+  // 画面の光
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+  ctx.fillRect(sx, sy, sw, sh * 0.3);
+};
+
+/** ゲームごとの筐体・立て看板の色と画面の絵 */
+interface GameLook {
+  /** 箱の上・暗い面・明るい面 */
+  top: string;
+  dark: string;
+  mid: string;
+  /** 看板・帯の色と、その上の字の色 */
+  accent: string;
+  signFg: string;
+  /** 上の看板の幅（s = 1 のとき）と字の大きさ */
+  topperW: number;
+  topperPx: number;
+  screen: (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, t: number) => void;
+  /** 操作盤：台・十字キー・ボタン 2 つ */
+  panel: [string, string, string, string];
+  /** 立て看板：地・縁・見出し・見出しの字・縞・点数・名前・空き・脚 */
+  board: { bg: string; border: string; head: string; headFg: string; stripe: string; score: string; name: string; empty: string; leg: string };
+}
+
+const GAME_LOOKS: Record<string, GameLook> = {
+  '2048': {
+    top: '#6b5236',
+    dark: '#3a2a1a',
+    mid: '#4d3824',
+    accent: GOLD,
+    signFg: '#ffffff',
+    topperW: 46,
+    topperPx: 13.5,
+    screen: drawScreen2048,
+    panel: ['#2a1c10', '#776e65', '#f67c5f', GOLD],
+    board: {
+      bg: '#faf8ef',
+      border: '#bbada0',
+      head: GOLD,
+      headFg: '#ffffff',
+      stripe: 'rgba(187, 173, 160, 0.18)',
+      score: '#776e65',
+      name: '#4d453d',
+      empty: 'rgba(119, 110, 101, 0.45)',
+      leg: '#8f7a66',
+    },
+  },
+  // Columns like game（DESIGN §16.8）：藍色の箱・紫の看板「COLUMNS LIKE」・黒い井戸に新しい色の宝石
+  columns: {
+    top: '#3a2f6e',
+    dark: '#1a1436',
+    mid: '#262050',
+    accent: '#9a5cf0',
+    signFg: '#ffffff',
+    topperW: 74,
+    topperPx: 10.5,
+    screen: drawScreenColumns,
+    panel: ['#120d26', '#5b5290', '#ff7ac6', '#7cc4ff'],
+    board: {
+      bg: '#171130',
+      border: '#7a33cc',
+      head: '#7a33cc',
+      headFg: '#ffffff',
+      stripe: 'rgba(210, 155, 255, 0.12)',
+      score: '#ffd47a',
+      name: '#f2ecff',
+      empty: 'rgba(242, 236, 255, 0.45)',
+      leg: '#4b3c86',
+    },
+  },
+};
+const lookOf = (game: string): GameLook => GAME_LOOKS[game] ?? GAME_LOOKS['2048'];
+
+/** 幅に収まる大きさで字を書く（小さな看板。font() の 8px の下限は使わない） */
+const fitText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, px: number, weight = 900) => {
+  let size = px;
+  ctx.font = `${weight} ${size.toFixed(1)}px ${FONT}`;
+  const w = ctx.measureText(text).width;
+  if (w > maxW && w > 0) {
+    size = Math.max(3, (size * maxW) / w);
+    ctx.font = `${weight} ${size.toFixed(1)}px ${FONT}`;
+  }
+  ctx.fillText(text, x, y);
+};
+
 const drawGameCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: GameSpot, t: number) => {
   const s = v.s;
+  const look = lookOf(spot.game);
+  const sign = gameInfo(spot.game)?.sign ?? spot.game.toUpperCase();
   const b = boxAt(v, spot.x, spot.y, GAME_INSET, GAME_H);
-  drawBox(ctx, b, '#6b5236', spot.face === 'S' ? '#3a2a1a' : '#4d3824', spot.face === 'S' ? '#4d3824' : '#3a2a1a');
-  // 横の面の金色の帯
+  drawBox(ctx, b, look.top, spot.face === 'S' ? look.dark : look.mid, spot.face === 'S' ? look.mid : look.dark);
+  // 横の面の帯
   const side: 'S' | 'E' = spot.face === 'S' ? 'E' : 'S';
   withFace(ctx, v, spot.x, spot.y, side, GAME_INSET, GAME_H, (fw, fh) => {
-    ctx.fillStyle = GOLD;
+    ctx.fillStyle = look.accent;
     ctx.globalAlpha = 0.75;
     ctx.beginPath();
     ctx.moveTo(0, fh * 0.5);
@@ -1027,83 +1195,70 @@ const drawGameCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: GameSpot,
     ctx.fill();
     ctx.globalAlpha = 1;
   });
-  // 正面：金色の看板・大きな画面（4×4 の盤）・操作盤
+  // 正面：看板・大きな画面・操作盤
   withFace(ctx, v, spot.x, spot.y, spot.face, GAME_INSET, GAME_H, (fw, fh) => {
     ctx.save();
-    ctx.shadowColor = GOLD;
+    ctx.shadowColor = look.accent;
     ctx.shadowBlur = 10;
-    ctx.fillStyle = GOLD;
+    ctx.fillStyle = look.accent;
     ctx.fillRect(1, 1, fw - 2, fh * 0.11);
     ctx.restore();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = font(fh * 0.085, 900);
+    ctx.fillStyle = look.signFg;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('2048', fw / 2, fh * 0.06);
-    // 画面（盤の地 #bbada0 に 4×4 のタイル）
+    fitText(ctx, sign, fw / 2, fh * 0.06, fw - 4, Math.max(8, fh * 0.085));
+    // 画面
     const sx = fw * 0.07;
     const sy = fh * 0.14;
     const sw = fw * 0.86;
     const sh = fh * 0.46;
     ctx.fillStyle = '#000';
     ctx.fillRect(sx - 1.5, sy - 1.5, sw + 3, sh + 3);
-    ctx.fillStyle = '#bbada0';
-    ctx.fillRect(sx, sy, sw, sh);
-    const demo = DEMO_BOARDS[Math.floor(t / 1600) % DEMO_BOARDS.length];
-    const gap = Math.max(0.6, sw * 0.03);
-    const cw = (sw - gap * 5) / 4;
-    const ch = (sh - gap * 5) / 4;
-    for (let r = 0; r < 4; r++)
-      for (let c = 0; c < 4; c++) {
-        const n = demo[r * 4 + c];
-        ctx.fillStyle = n ? TILE_COLORS[n] : 'rgba(238, 228, 218, 0.35)';
-        ctx.fillRect(sx + gap + c * (cw + gap), sy + gap + r * (ch + gap), cw, ch);
-      }
-    // 画面の光
+    look.screen(ctx, sx, sy, sw, sh, t + spot.id * 700);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.fillRect(sx, sy, sw, sh * 0.35);
     // 操作盤（十字キーとボタン）
-    ctx.fillStyle = '#2a1c10';
+    const [base, stick, b1, b2] = look.panel;
+    ctx.fillStyle = base;
     ctx.fillRect(1, fh * 0.64, fw - 2, fh * 0.08);
-    ctx.fillStyle = '#776e65';
+    ctx.fillStyle = stick;
     ctx.fillRect(fw * 0.2, fh * 0.655, fw * 0.16, fh * 0.05);
     ctx.fillRect(fw * 0.26, fh * 0.64, fw * 0.04, fh * 0.08);
-    ctx.fillStyle = '#f67c5f';
+    ctx.fillStyle = b1;
     ctx.beginPath();
     ctx.arc(fw * 0.66, fh * 0.68, Math.max(1, fw * 0.05), 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = GOLD;
+    ctx.fillStyle = b2;
     ctx.beginPath();
     ctx.arc(fw * 0.8, fh * 0.68, Math.max(1, fw * 0.05), 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#edc22e';
+    ctx.fillStyle = look.accent;
     ctx.fillRect(fw * 0.42, fh * 0.8, fw * 0.16, fh * 0.04);
   });
-  // 上の看板（画面に平行。遠くからでも「2048 の台」と分かるように）
+  // 上の看板（画面に平行。遠くからでも何の台か分かるように）
   const top = toScreen(v, spot.x + 0.5, spot.y + 0.5, TOPPER_Z);
-  const w = 46 * s;
+  const w = look.topperW * s;
   const h = 19 * s;
   const glow = 0.7 + 0.3 * Math.sin(t / 500 + spot.id);
   ctx.save();
-  ctx.shadowColor = GOLD;
+  ctx.shadowColor = look.accent;
   ctx.shadowBlur = 14 * glow;
-  ctx.fillStyle = GOLD;
+  ctx.fillStyle = look.accent;
   ctx.beginPath();
   ctx.roundRect(top.x - w / 2, top.y - h, w, h, 4 * s);
   ctx.fill();
   ctx.restore();
-  ctx.strokeStyle = '#fff6d0';
+  ctx.strokeStyle = 'rgba(255, 250, 230, 0.9)';
   ctx.lineWidth = 1.2;
   ctx.beginPath();
   ctx.roundRect(top.x - w / 2, top.y - h, w, h, 4 * s);
   ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.font = font(13.5 * s, 900);
+  ctx.fillStyle = look.signFg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('2048', top.x, top.y - h / 2 + 0.5 * s);
+  fitText(ctx, sign, top.x, top.y - h / 2 + 0.5 * s, w - 6 * s, look.topperPx * s);
   // 看板の支え
-  ctx.strokeStyle = '#3a2a1a';
+  ctx.strokeStyle = look.dark;
   ctx.lineWidth = 2 * s;
   const foot = toScreen(v, spot.x + 0.5, spot.y + 0.5, GAME_H);
   ctx.beginPath();
@@ -1116,7 +1271,7 @@ const drawGameCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: GameSpot,
 const gameCabinetPoly = (v: View, spot: GameSpot): SP[] => {
   const b = boxAt(v, spot.x, spot.y, GAME_INSET, GAME_H);
   const top = toScreen(v, spot.x + 0.5, spot.y + 0.5, TOPPER_Z);
-  const w = 46 * v.s;
+  const w = lookOf(spot.game).topperW * v.s;
   const h = 19 * v.s;
   // 箱の輪郭（左手前の下 → 手前の下 → 右の下 → 右の上 → 奥の上 → 左の上）の上に看板の四角を足す
   return [b.floor[3], b.floor[2], b.floor[1], b.top[1], { x: top.x + w / 2, y: top.y }, { x: top.x + w / 2, y: top.y - h }, { x: top.x - w / 2, y: top.y - h }, { x: top.x - w / 2, y: top.y }, b.top[3]];
@@ -1138,35 +1293,36 @@ const rankingRect = (v: View, spot: RankingSpot) => {
 /** 板の中身は変わったときだけ描き直す（上位・倍率・画素の比が同じなら前の絵を貼る） */
 const rankingCache = new Map<string, HTMLCanvasElement>();
 
-const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], title: string): HTMLCanvasElement => {
+const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], game: string): HTMLCanvasElement => {
   const dpr = window.devicePixelRatio || 1;
-  const key = `${title}|${w.toFixed(1)}|${h.toFixed(1)}|${dpr}|${JSON.stringify(top.map((e) => [e.name, e.score]))}`;
+  const key = `${game}|${w.toFixed(1)}|${h.toFixed(1)}|${dpr}|${JSON.stringify(top.map((e) => [e.name, e.score]))}`;
   const hit = rankingCache.get(key);
   if (hit) return hit;
+  const look = lookOf(game).board;
+  const sign = gameInfo(game)?.sign ?? game.toUpperCase();
   const c = document.createElement('canvas');
   c.width = Math.ceil(w * dpr);
   c.height = Math.ceil(h * dpr);
   const x = c.getContext('2d')!;
   x.setTransform(dpr, 0, 0, dpr, 0, 0);
-  // 板（元の 2048 の色：地 #faf8ef・文字 #776e65）
-  x.fillStyle = '#faf8ef';
+  // 板（2048 は元の 2048 の色：地 #faf8ef・文字 #776e65）
+  x.fillStyle = look.bg;
   x.beginPath();
   x.roundRect(0, 0, w, h, 5 * s);
   x.fill();
-  x.strokeStyle = '#bbada0';
+  x.strokeStyle = look.border;
   x.lineWidth = 2 * s;
   x.stroke();
-  // 見出し
+  // 見出し（長い名前は幅に収まるよう小さく）
   const hh = 16 * s;
-  x.fillStyle = GOLD;
+  x.fillStyle = look.head;
   x.beginPath();
   x.roundRect(3 * s, 3 * s, w - 6 * s, hh, 3 * s);
   x.fill();
-  x.fillStyle = '#ffffff';
-  x.font = font(9.5 * s, 900);
+  x.fillStyle = look.headFg;
   x.textAlign = 'center';
   x.textBaseline = 'middle';
-  x.fillText(`${title} RANKING`, w / 2, 3 * s + hh / 2 + 0.5);
+  fitText(x, `${sign} RANKING`, w / 2, 3 * s + hh / 2 + 0.5, w - 10 * s, 9.5 * s);
   // 上位 5 人（順位・名前・点数）
   const rowH = (h - hh - 9 * s) / 5;
   const y0 = 3 * s + hh + 3 * s;
@@ -1175,16 +1331,16 @@ const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], t
     const e = top[i];
     const cy = y0 + rowH * (i + 0.5);
     if (i % 2 === 0) {
-      x.fillStyle = 'rgba(187, 173, 160, 0.18)';
+      x.fillStyle = look.stripe;
       x.fillRect(3 * s, y0 + rowH * i, w - 6 * s, rowH);
     }
     x.textBaseline = 'middle';
     x.font = font(8 * s, 900);
     x.textAlign = 'center';
-    x.fillStyle = medal[i] ?? '#776e65';
+    x.fillStyle = medal[i] ?? look.score;
     x.fillText(String(i + 1), 9 * s, cy);
     if (!e) {
-      x.fillStyle = 'rgba(119, 110, 101, 0.45)';
+      x.fillStyle = look.empty;
       x.textAlign = 'left';
       x.font = font(7.5 * s, 600);
       x.fillText(i === 0 && !top.length ? 'まだ記録がありません' : '―', 16 * s, cy);
@@ -1192,13 +1348,13 @@ const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], t
     }
     x.font = font(8 * s, 900);
     x.textAlign = 'right';
-    x.fillStyle = '#776e65';
+    x.fillStyle = look.score;
     const score = formatScore(e.score);
     x.fillText(score, w - 5 * s, cy);
     const sw = x.measureText(score).width;
     x.font = font(7.5 * s, 700);
     x.textAlign = 'left';
-    x.fillStyle = '#4d453d';
+    x.fillStyle = look.name;
     const room = w - 16 * s - 5 * s - sw - 4 * s;
     let name = e.name;
     while (name.length > 1 && x.measureText(name).width > room) name = name.slice(0, -1);
@@ -1210,7 +1366,7 @@ const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], t
   return c;
 };
 
-const drawRankingBoard = (ctx: CanvasRenderingContext2D, v: View, spot: RankingSpot, top: RankingEntry[], title: string) => {
+const drawRankingBoard = (ctx: CanvasRenderingContext2D, v: View, spot: RankingSpot, top: RankingEntry[]) => {
   const s = v.s;
   const r = rankingRect(v, spot);
   // 脚（2 本）と床の影
@@ -1218,7 +1374,7 @@ const drawRankingBoard = (ctx: CanvasRenderingContext2D, v: View, spot: RankingS
   ctx.beginPath();
   ctx.ellipse(r.foot.x, r.foot.y, 22 * s, 7 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = '#8f7a66';
+  ctx.strokeStyle = lookOf(spot.game).board.leg;
   ctx.lineWidth = 3 * s;
   for (const dx of [-0.3, 0.3]) {
     ctx.beginPath();
@@ -1229,7 +1385,7 @@ const drawRankingBoard = (ctx: CanvasRenderingContext2D, v: View, spot: RankingS
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
   ctx.shadowBlur = 8;
-  ctx.drawImage(drawRankingFace(r.w, r.h, s, top, title), r.x, r.y, r.w, r.h);
+  ctx.drawImage(drawRankingFace(r.w, r.h, s, top, spot.game), r.x, r.y, r.w, r.h);
   ctx.restore();
 };
 
@@ -1262,7 +1418,7 @@ const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number, 
     }
     case 'ranking': {
       const spot = rankingSpots().find((g) => g.x === d.x && g.y === d.y);
-      if (spot) drawRankingBoard(ctx, v, spot, ui?.rankings?.[spot.game] ?? [], gameInfo(spot.game)?.title ?? spot.game);
+      if (spot) drawRankingBoard(ctx, v, spot, ui?.rankings?.[spot.game] ?? []);
       break;
     }
     case 'plant': {

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  type GameDetail,
   CHAT_KEEP,
   NOTE_MAX_TOTAL,
   REQUEST_MAX_TOTAL,
@@ -48,7 +49,21 @@ export interface GameScoreRow {
   name: string;
   score: number;
   maxTile: number;
+  /** ゲームごとの中身（Columns like game の開始レベル・レベル・ジュエル） */
+  detail?: GameDetail;
 }
+
+/** 記録の detail 列（JSON）を読む。数だけ取り出す */
+const parseDetail = (raw: string): GameDetail => {
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    const d: GameDetail = {};
+    for (const k of ['startLevel', 'level', 'jewels'] as const) if (typeof j[k] === 'number') d[k] = j[k] as number;
+    return d;
+  } catch {
+    return {};
+  }
+};
 
 export interface UserRow {
   key_hash: string;
@@ -161,7 +176,8 @@ export class Store {
         score INTEGER NOT NULL,
         max_tile INTEGER NOT NULL,
         moves INTEGER NOT NULL,
-        ms INTEGER NOT NULL
+        ms INTEGER NOT NULL,
+        detail TEXT
       );
       CREATE INDEX IF NOT EXISTS game_scores_score ON game_scores(game, score DESC);
       CREATE INDEX IF NOT EXISTS game_scores_key ON game_scores(game, key_hash);
@@ -169,6 +185,9 @@ export class Store {
     // v0.3.0：発言したときのバッジ（前の版の DB には列が無い）
     const cols = (this.db.prepare(`PRAGMA table_info(chat)`).all() as Array<{ name: string }>).map((c) => c.name);
     if (!cols.includes('badges')) this.db.exec(`ALTER TABLE chat ADD COLUMN badges TEXT NOT NULL DEFAULT ''`);
+    // v0.6.0：ゲームごとの中身（Columns like game の開始レベルなど。JSON）。2048 だけのときに作った表には列が無い
+    const gcols = (this.db.prepare(`PRAGMA table_info(game_scores)`).all() as Array<{ name: string }>).map((c) => c.name);
+    if (!gcols.includes('detail')) this.db.exec(`ALTER TABLE game_scores ADD COLUMN detail TEXT`);
   }
 
   // ---------------------------------------------------------------- 来た人
@@ -571,13 +590,14 @@ export class Store {
       name: String(r.name),
       score: Number(r.score),
       maxTile: Number(r.max_tile),
+      ...(typeof r.detail === 'string' && r.detail ? { detail: parseDetail(r.detail) } : {}),
     };
   }
 
   addGameScore(r: Omit<GameScoreRow, 'id'> & { moves: number; ms: number }): number {
     const res = this.db
-      .prepare(`INSERT INTO game_scores (game, at, key_hash, pid, name, score, max_tile, moves, ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(r.game, r.at, r.keyHash, r.pid, r.name, r.score, r.maxTile, r.moves, r.ms);
+      .prepare(`INSERT INTO game_scores (game, at, key_hash, pid, name, score, max_tile, moves, ms, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(r.game, r.at, r.keyHash, r.pid, r.name, r.score, r.maxTile, r.moves, r.ms, r.detail ? JSON.stringify(r.detail) : null);
     return Number(res.lastInsertRowid);
   }
 

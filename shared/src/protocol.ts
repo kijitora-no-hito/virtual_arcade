@@ -183,11 +183,21 @@ export interface RankingEntry {
   rank: number;
   name: string;
   score: number;
+  /** 2048 のいちばん大きいタイル（ほかのゲームは 0） */
   maxTile: number;
   at: number;
+  /** ゲームごとの中身（Columns like game：開始レベル・終わりのレベル・消したジュエルの数） */
+  detail?: GameDetail;
 }
 
-/** POST /api/games/:game/start */
+/** 記録のゲームごとの中身（v0.6.0。DESIGN §16.8） */
+export interface GameDetail {
+  startLevel?: number;
+  level?: number;
+  jewels?: number;
+}
+
+/** POST /api/games/:game/start（Columns like game は body に options） */
 export interface GameStartResponse {
   /** このゲームのセッション（finish で返す） */
   session: string;
@@ -195,6 +205,10 @@ export interface GameStartResponse {
   seed: number;
   /** サーバに記録された自分のベスト（無ければ 0） */
   best: number;
+  /** 練習（ランキングに載らない設定。finish しても記録しない） */
+  practice?: boolean;
+  /** サーバが受け付けた設定（Columns like game） */
+  options?: { mode: number; colors: number; height: number; start: number };
 }
 
 /** POST /api/games/:game/finish */
@@ -210,6 +224,10 @@ export interface GameFinishResponse {
   newBest: boolean;
   /** 自分の順位（自己ベストで。入っていなければ null） */
   rank: { all: number | null; month: number | null };
+  /** 練習の設定だった（記録しない） */
+  practice?: boolean;
+  /** ゲームごとの中身（Columns like game） */
+  detail?: GameDetail;
 }
 
 /** GET /api/games/:game/ranking?period=all|month */

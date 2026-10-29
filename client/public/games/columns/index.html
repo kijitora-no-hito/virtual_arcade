@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en"><head><title>Columns like game</title>
+<meta charset="utf-8">
+<meta name="viewport" content="initial-scale=1.0">
+<!-- va: Columns like game（バーチャルゲームセンター。元は github.com/jcfieldsdev/columns、MIT）。変えた所は CHANGES.md -->
+<link href="layout/style.css" media="screen" rel="stylesheet" type="text/css">
+<script src="va_bridge.js" type="text/javascript"></script>
+<script src="columns.js" type="text/javascript"></script>
+<base target="_blank"></head>
+<body><header><h1>Columns like game</h1></header>
+<main>
+	<noscript><p>Must have JavaScript enabled.</p></noscript>
+	<div id="overlay_pause" class="overlay">Paused</div>
+	<canvas id="well" hidden="hidden"></canvas>
+	<canvas id="grid" hidden="hidden"></canvas>
+</main>
+<div id="next">
+	<div>Next</div>
+	<div><canvas hidden="hidden"></canvas></div>
+</div>
+<div id="stats">
+	<div id="points"></div>
+	<dl><dt>Time</dt><dd id="time">0:00</dd>
+	<dt>Score</dt><dd id="score">0</dd>
+	<dt>Level</dt><dd id="level">0</dd>
+	<dt>Jewels</dt><dd id="jewels">0</dd></dl>
+</div>
+<div id="controls">
+	<div><button type="button" id="left" disabled="disabled">&larr; Left</button></div>
+	<div><button type="button" id="swap" disabled="disabled">Swap</button></div>
+	<div><button type="button" id="drop" disabled="disabled">Drop</button></div>
+	<div><button type="button" id="right" disabled="disabled">&rarr; Right</button></div>
+</div>
+<div id="menu">
+	<div><button type="button" id="play">Play</button></div>
+	<div><button type="button" id="options" value="options" class="toggle">Options</button></div>
+	<div><button type="button" id="reset" disabled="disabled">Reset</button></div>
+</div>
+<div id="overlay_options" class="overlay">
+	<table><tr><th><label for="difficulty">Colors</label></th><td><input type="range" min="3" max="6" value="5" id="difficulty" class="option"></td><td id="showDifficulty" class="show">5</td></tr>
+	<tr><th><label for="start">Level</label></th><td><input type="range" min="1" max="12" value="1" id="start" class="option"></td><td id="showStart" class="show">1</td></tr>
+	<tr><th><label for="height">Height</label></th><td><input type="range" min="0" max="10" value="0" id="height" class="option"></td><td id="showHeight" class="show">0</td></tr>
+	<tr><th>Mode</th><td><label><input type="radio" value="0" name="mode" id="standard" class="option" checked="checked">&nbsp;Standard</label> <label><input type="radio" value="1" name="mode" id="flash" class="option">&nbsp;Flash</label> <label><input type="radio" value="2" name="mode" id="timeAttack" class="option">&nbsp;Time Attack</label></td><td></td></tr></table>
+	<div class="va-note">ランキングに載るのは Standard・Colors 5・Height 0 のとき（Level は自由）。ほかは練習です。</div>
+	<div><label><input type="checkbox" id="ghost" class="option" checked="checked">&nbsp;Show ghost piece.</label></div>
+	<div><button type="button" value="options" class="close">Close</button></div>
+</div>
+<div id="overlay_gameover" class="overlay">
+	<div id="gameover">Game Over</div>
+	<div class="va-note">Reset で次のゲームへ</div>
+</div>
+<footer>
+	<div id="va_help">← → 移動　↑ 色を回す　↓ 速く　スペース 落とす　Enter 一時停止　Esc 閉じる</div>
+	<div id="author">Original code: <a href="https://github.com/jcfieldsdev/columns" rel="noopener noreferrer">columns by J.C. Fields</a> (MIT License)</div>
+</footer></body></html>

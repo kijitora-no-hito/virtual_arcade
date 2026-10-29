@@ -1146,6 +1146,28 @@ textarea:focus {
 .game-note {
   margin: 8px 0 0;
 }
+/* Columns like game（v0.6.0。DESIGN §16.8）：地は黒（元の背景のグラデーションが入るまで）・練習の設定の帯 */
+.game-columns .game-frame,
+.game-columns .game-frame iframe {
+  background: #000;
+}
+/* PC は横長の窓（元の横長のレイアウト。縦長だと数字の欄・ボタンが切れる） */
+:root:not(.layout-mobile) .modal.game-modal.game-columns {
+  width: min(940px, calc(100vw - 32px));
+}
+:root:not(.layout-mobile) .game-columns .game-frame iframe {
+  height: min(620px, calc(100vh - 210px));
+}
+.game-practice {
+  margin: 0 0 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffe680;
+  background: rgba(124, 60, 200, 0.35);
+  border: 1px solid rgba(210, 155, 255, 0.5);
+}
 .modal.ranking-modal {
   width: min(620px, calc(100vw - 32px));
 }
@@ -1203,8 +1225,18 @@ textarea:focus {
   font-size: 12px;
 }
 .rank-table th:nth-child(3),
-.rank-table th:nth-child(4) {
+.rank-table th:nth-child(4),
+.rank-table th.rank-jewels {
   text-align: right;
+}
+/* ゲームのタブ（2048 / Columns like game）の下に期間のタブ */
+.tabs.rank-games {
+  margin-bottom: 6px;
+}
+.tabs.rank-games .tab.on {
+  color: #edc22e;
+  border-color: #edc22e;
+  background: rgba(237, 194, 46, 0.1);
 }
 .rank-1 .rank-no {
   color: #edc22e;
@@ -2344,8 +2376,7 @@ input[type='datetime-local'] {
 .layout-mobile .game-note {
   display: none;
 }
-.layout-mobile .rank-at,
-.layout-mobile .rank-table th:nth-child(5) {
+.layout-mobile .rank-at {
   display: none;
 }
 .layout-mobile .note-modal.writing .note-book,

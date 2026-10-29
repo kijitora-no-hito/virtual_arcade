@@ -173,10 +173,10 @@ describe('replay2048', () => {
 
 describe('ゲームの一覧・置き場所（floor.json）', () => {
   it('2048 の筐体とランキングの立て看板があり、どちらも GAMES にあるゲーム', () => {
-    expect(GAMES.map((g) => g.id)).toEqual(['2048']);
+    expect(GAMES.map((g) => g.id)).toEqual(['2048', 'columns']);
     expect(isGameId('2048')).toBe(true);
     expect(isGameId('tetris')).toBe(false);
-    const g = gameSpots();
+    const g = gameSpots(FLOOR, '2048');
     expect(g).toHaveLength(1);
     expect(g[0]).toMatchObject({ id: 1, game: '2048', face: 'S' });
     expect(rankingSpots(FLOOR, '2048')).toHaveLength(1);
@@ -184,37 +184,30 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
     // 配信用の 8 番 (13,4) の隣に 2048 の筐体（ユーザー指定）。立て看板は (17,4)（右隣の (15,4) はあとで足す Hextris の筐体・
     // 板は筐体の 2 マス右に置かないと筐体の画面を隠すので、Hextris の 2 マス右）。16 番の隣 (14,9)〜(16,9) はコラムス用に空けておく
     expect(g[0]).toMatchObject({ x: 14, y: 4 });
-    expect(rankingSpots()[0]).toMatchObject({ x: 17, y: 4 });
+    expect(rankingSpots(FLOOR, '2048')[0]).toMatchObject({ x: 17, y: 4 });
+    // Hextris 用に (15,4)・(15,5) と、その立て看板の予定地 (20,3) は空けておく。コラムスの筐体の前 (14,10) と立て看板の前 (16,10) も通れる
     for (const [x, y] of [
       [15, 4],
       [15, 5],
-      [14, 9],
+      [20, 3],
+      [14, 10],
       [15, 9],
-      [16, 9],
+      [16, 10],
     ])
       expect(isPassable(FLOOR, x, y), `${x},${y}`).toBe(true);
   });
 
-  it('あとで足す筐体（Hextris (15,4)・コラムス (14,9)）と立て看板を置いても、前のマスが通れて店のどこへでも歩ける', () => {
+  it('あとで足す Hextris の筐体 (15,4) と立て看板 (20,3) を置いても、前のマスが通れて店のどこへでも歩ける（コラムス (14,9)・(16,9) は置いてある）', () => {
     const base = floorJson as FloorJson;
-    // Hextris の立て看板は (20,3)（2048 の看板 (17,4) と画面の上で重ならない所）、コラムスの立て看板は (15,9) か (16,9)
-    for (const [cx, rx, ry] of [
-      [15, 20, 3],
-      [16, 20, 3],
-    ]) {
-      const f = loadFloor({
-        ...base,
-        decor: [
-          ...base.decor,
-          { type: 'game', game: 'hextris', x: 15, y: 4, face: 'S' },
-          { type: 'ranking', game: 'hextris', x: rx, y: ry },
-          { type: 'game', game: 'columns', x: 14, y: 9, face: 'S' },
-          { type: 'ranking', game: 'columns', x: cx, y: 9 },
-        ],
-      } as FloorJson);
-      const s = f.spawn[0];
-      for (let y = 0; y < f.rows; y++)
-        for (let x = 0; x < f.cols; x++) if (isPassable(f, x, y)) expect(findPath(f, s, { x, y }), `${x},${y}`).not.toBeNull();
+    expect(base.decor.some((d) => d.type === 'game' && d.game === 'columns' && d.x === 14 && d.y === 9)).toBe(true);
+    const f = loadFloor({
+      ...base,
+      decor: [...base.decor, { type: 'game', game: 'hextris', x: 15, y: 4, face: 'S' }, { type: 'ranking', game: 'hextris', x: 20, y: 3 }],
+    } as FloorJson);
+    for (const fl of [FLOOR, f]) {
+      const s = fl.spawn[0];
+      for (let y = 0; y < fl.rows; y++)
+        for (let x = 0; x < fl.cols; x++) if (isPassable(fl, x, y)) expect(findPath(fl, s, { x, y }), `${x},${y}`).not.toBeNull();
     }
   });
 

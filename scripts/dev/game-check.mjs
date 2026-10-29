@@ -1,7 +1,10 @@
-// ゲーム筐体と 2048・ランキングの確認（v0.6.0。DESIGN §16）。Edge ヘッドレス（CDP）と API・WebSocket で：
+// ゲーム筐体と 2048・Columns like game・ランキングの確認（v0.6.0。DESIGN §16・§16.8）。Edge ヘッドレス（CDP）と API・WebSocket で：
 //   筐体をクリック → 歩いて窓が開く → iframe に矢印キー（親の人は動かない）→ 窓を閉じて記録 → もう一度開いてゲームオーバーまで → 結果の帯 →
 //   Try again で始め直す → ランキングの窓 → 2 人目（API と WebSocket）が遊んで順位が並ぶ・立て看板（ranking の受信）に反映 →
-//   不正な手順（でたらめな手・速すぎる・別のセッション・遠い）が断られる → スマホ（390×844）でタップで開いてスワイプで遊ぶ
+//   不正な手順（でたらめな手・速すぎる・別のセッション・遠い）が断られる →
+//   Columns like game：筐体をクリック → Play → iframe にキーでピースを置く → フォーカスが外れると一時停止 → 閉じて記録 → ゲームオーバーまで →
+//   練習の設定は記録しない → Esc → ランキングの窓のゲームのタブ → 2 人目の記録・立て看板 → 不正な記録 →
+//   スマホ（390×844）でタップで開いてスワイプで遊ぶ（2048）・下のボタンで遊ぶ（Columns）
 //   node scripts/dev/game-check.mjs <BASE の URL（例 http://127.0.0.1:8796/arcade）> [撮る先のフォルダ]
 // 結果は 1 行ずつ「OK / NG 内容」。最後に NG の数で終わる（0 なら成功）。同じ IP の WebSocket を 2 本使う（scene の 6 人と合わせて 10 本まで）。
 import { spawn } from 'node:child_process';
@@ -152,11 +155,11 @@ await send('Page.navigate', { url: new URL(base).origin + '/__ls' });
 await sleep(800);
 await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(keyA))}); sessionStorage.setItem('va:room', 'open')`);
 await send('Page.navigate', { url: `${base}/#dev` });
-check(await waitFor(`!!window.__va && !!__va.game(0) && !!__va.me()`, 10000), '店内に入った（#dev の __va.game・__va.ranking がある）');
-check(!!(await pt('__va.ranking(0)')), 'ランキングの立て看板の位置が取れる');
+check(await waitFor(`!!window.__va && !!__va.game('2048') && !!__va.me()`, 10000), '店内に入った（#dev の __va.game・__va.ranking がある）');
+check(!!(await pt(`__va.ranking('2048')`)), 'ランキングの立て看板の位置が取れる');
 
 // ---- 遠くから筐体をクリック → 歩いて着いたら窓が開く
-const g0 = await pt('__va.game(0)');
+const g0 = await pt(`__va.game('2048')`);
 const me0 = await pt('__va.me()');
 await click(g0.x, g0.y);
 check(await waitFor(`!!document.querySelector('.game-modal')`, 15000), '遠くから筐体をクリック → 歩いて着いたら 2048 の窓が開く', `始めの位置 (${me0?.x?.toFixed?.(0)},${me0?.y?.toFixed?.(0)})`);
@@ -200,7 +203,7 @@ const pA2 = B.msgs.filter((m) => m.type === 'player' && m.player.name === nameA)
 check(pA2 && !pA2.player.playing, '閉じると 🎮 が外れる');
 
 // ---- もう一度開いて（近いのですぐ開く）ゲームオーバーまで → 結果の帯 → Try again
-const g1 = await pt('__va.game(0)');
+const g1 = await pt(`__va.game('2048')`);
 await click(g1.x, g1.y);
 check(await waitFor(`!!document.querySelector('.game-modal') && (${FDOC}?.querySelectorAll('.tile-container .tile').length ?? 0) >= 2`, 8000), '近くでクリックするとすぐ開く');
 const gen1 = await ev('__vaGame.gen()');
@@ -227,9 +230,10 @@ await ev(`[...document.querySelectorAll('.game-modal button')].find((b) => b.tex
 check(await waitFor(`document.querySelectorAll('.ranking-modal .rank-table tbody tr:not(.rank-gap)').length >= 1 && !document.querySelector('.ranking-modal .rank-empty')`, 5000), 'ランキングの窓（総合）に記録が並ぶ');
 check(await ev(`!!document.querySelector('.ranking-modal .rank-mine')`), '自分の行に印がある');
 check(await ev(`/あなた：\\d+ 位/.test(document.querySelector('.rank-me')?.textContent ?? '')`), '自分の順位が出る', await ev(`document.querySelector('.rank-me')?.textContent`));
-await ev(`[...document.querySelectorAll('.ranking-modal .tab')].find((b) => b.textContent === '今月').click()`);
-check(await waitFor(`document.querySelector('.ranking-modal .tab.on')?.textContent === '今月' && document.querySelectorAll('.ranking-modal .rank-table tbody tr').length >= 1`, 4000), '今月のタブ');
-await ev(`[...document.querySelectorAll('.ranking-modal .tab')].find((b) => b.textContent === '総合').click()`);
+check(await ev(`document.querySelector('.ranking-modal .rank-games .tab.on')?.textContent === '2048'`), '2048 の窓から開くと 2048 のタブ');
+await ev(`[...document.querySelectorAll('.ranking-modal .rank-periods .tab')].find((b) => b.textContent === '今月').click()`);
+check(await waitFor(`document.querySelector('.ranking-modal .rank-periods .tab.on')?.textContent === '今月' && document.querySelectorAll('.ranking-modal .rank-table tbody tr').length >= 1`, 4000), '今月のタブ');
+await ev(`[...document.querySelectorAll('.ranking-modal .rank-periods .tab')].find((b) => b.textContent === '総合').click()`);
 await sleep(600);
 await shot('game_pc_ranking.png');
 await ev(`document.querySelector('.ranking-modal button[aria-label="閉じる"]').click()`);
@@ -315,13 +319,169 @@ B.send({ type: 'goto', x: 3, y: 13 });
 await sleep(6000);
 check((await call(keyB, 'POST', '/api/games/2048/start', {})).body?.code === 'too-far', '遠くからは始められない → too-far');
 check((await call(keyB, 'POST', '/api/games/xyz/start', {})).status === 404, '知らないゲーム → 404');
+// ================================================================ Columns like game（DESIGN §16.8）
+const CDOC = FDOC; // 同じ窓の iframe
+const cOverlay = (id) => ev(`!!${CDOC}?.querySelector('#overlay_${id}.open')`);
+const cScore = () => ev(`Number((${CDOC}?.querySelector('#score')?.textContent ?? 'NaN').replace(/,/g, ''))`);
+/** iframe の中の要素をマウスでクリック（親の座標に直して CDP で） */
+const clickIn = async (sel) => {
+  const r = await pt(`(() => { const f = ${FRAME}.getBoundingClientRect(); const e = ${CDOC}.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: f.left + b.left + b.width / 2, y: f.top + b.top + b.height / 2 }; })()`);
+  if (r) await click(r.x, r.y);
+  return r;
+};
+const keyName = async (k, code) => {
+  await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k, code: k === ' ' ? 'Space' : k, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code: k === ' ' ? 'Space' : k, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code });
+};
+const SPACE = () => keyName(' ', 32);
+
+check(!!(await pt(`__va.game('columns')`)) && !!(await pt(`__va.ranking('columns')`)), 'Columns like game の筐体と立て看板の位置が取れる');
+const cg = await pt(`__va.game('columns')`);
+await click(cg.x, cg.y);
+check(await waitFor(`!!document.querySelector('.game-modal.game-columns')`, 15000), '遠くから Columns like game の筐体をクリック → 歩いて着いたら窓が開く');
+check(await waitFor(`!!${CDOC}?.querySelector('#play') && !!${CDOC}?.querySelector('#well:not([hidden])')`, 8000), 'iframe に Columns like game（Play ボタン・井戸）が出る');
+check(await ev(`(${CDOC}?.title ?? '') === 'Columns like game' && /Columns like game/.test(${CDOC}?.querySelector('h1')?.textContent ?? '')`), '題名・見出しは「Columns like game」');
+check(await ev(`!!${CDOC}?.querySelector('a[href="https://github.com/jcfieldsdev/columns"]') && !${CDOC}?.querySelector('a[href^="mailto:"]')`), '出典（GitHub）があり、メールアドレスは無い');
+check(await ev(`!${CDOC}?.querySelector('#scores') && !${CDOC}?.querySelector('#photo')`), 'ローカルのハイスコア・写真の背景の選択は無い');
+// 外への通信が無い（iframe の中で読んだものはすべて同じオリジン）
+const foreign = await ev(`${FRAME}.contentWindow.performance.getEntriesByType('resource').map((e) => e.name).filter((u) => !u.startsWith(location.origin))`);
+check(Array.isArray(foreign) && foreign.length === 0, 'iframe の中は外への通信が無い', JSON.stringify(foreign));
+check((await ev('__vaGame.session()')) === false, 'Play を押すまでは始めない（サーバのセッション無し）');
+await clickIn('#play');
+check(await waitFor(`__vaGame.session() === true && __vaGame.practice() === false`, 5000), 'Play → 親がサーバに start（ランキングに載る設定）');
+check(await waitFor(`(${CDOC}?.querySelector('#play')?.textContent ?? '') === 'Pause'`, 3000), 'iframe のゲームが始まる');
+await ev(`${FRAME}.focus()`);
+const cMe0 = await pt('__va.me()');
+// 何個か置く：← → ↑ で動かし・回し、スペースで落とす
+const plan = [
+  ['ArrowLeft', 37],
+  ['ArrowLeft', 37],
+  ['ArrowUp', 38],
+  ['ArrowRight', 39],
+  ['ArrowRight', 39],
+  ['ArrowRight', 39],
+];
+for (let i = 0; i < 8; i++) {
+  for (let k = 0; k < i % 4; k++) await keyName(...plan[(i + k) % plan.length]);
+  if (i % 3 === 2) await keyName('ArrowDown', 40);
+  await SPACE();
+  await sleep(i === 3 ? 0 : 700);
+  if (i === 3) {
+    await sleep(120);
+    await shot('game_pc_columns.png');
+    await sleep(600);
+  }
+}
+await sleep(800);
+const cc1 = await ev('__vaGame.count()');
+check(cc1 >= 6, 'iframe にキーを送るとピースが置かれ、置いた記録を親が覚えている', `置いた数 ${cc1}`);
+const cMe1 = await pt('__va.me()');
+check(cMe0 && cMe1 && cMe0.to.x === cMe1.to.x && cMe0.to.y === cMe1.to.y, 'Columns の窓を開いている間、店内の人はキーで動かない');
+// 窓の外をクリックして iframe からフォーカスが外れると一時停止（元のとおり）
+const head = await pt(`(() => { const r = document.querySelector('.game-modal .modal-head h2').getBoundingClientRect(); return { x: r.left + 10, y: r.top + r.height / 2 }; })()`);
+await click(head.x, head.y);
+check(await waitFor(`!!${CDOC}?.querySelector('#overlay_pause.open')`, 3000), '窓の外をクリック（フォーカスが外れる）と一時停止');
+const cScore1 = await cScore();
+// ✕ で閉じる → 記録（keepalive）→ 帯・ランキング
+await ev(`document.querySelector('.game-modal button[aria-label="閉じる"]').click()`);
+check(await waitFor(`!document.querySelector('.game-modal')`, 3000), 'Columns の窓が ✕ で閉じる');
+await sleep(1200);
+const cToast = await ev(`document.querySelector('.toast')?.textContent ?? ''`);
+check(/記録しました/.test(cToast), '閉じたら記録され、店内の帯に結果が出る', cToast);
+const crk1 = await call(keyA, 'GET', '/api/games/columns/ranking?period=all');
+check(crk1.body?.me?.score === cScore1 && crk1.body?.me?.detail?.startLevel === 1, 'ランキングに自分の記録（点数は iframe の点数 = サーバがなぞり直した点数・開始レベル）', `iframe ${cScore1} / サーバ ${crk1.body?.me?.score}`);
+
+// もう一度開いて、ゲームオーバーまで（真ん中の列に落とし続けると、あふれた列でゆっくり固まって終わる）
+await click(cg.x, cg.y);
+check(await waitFor(`!!document.querySelector('.game-modal.game-columns') && !!${CDOC}?.querySelector('#play')`, 8000), 'Columns の窓をもう一度開く');
+await sleep(500);
+await clickIn('#play');
+await waitFor(`__vaGame.session() === true`, 5000);
+await ev(`${FRAME}.focus()`);
+let cOver = false;
+for (let i = 0; i < 60 && !cOver; i++) {
+  await SPACE();
+  await sleep(450);
+  cOver = await cOverlay('gameover');
+}
+if (!cOver) cOver = await waitFor(`!!${CDOC}?.querySelector('#overlay_gameover.open')`, 8000);
+check(cOver, 'ゲームオーバーまで遊べる');
+const cScore2 = await cScore();
+check(await waitFor(`/記録しました/.test(document.querySelector('.game-result')?.textContent ?? '')`, 6000), 'ゲームオーバーで記録され、結果の帯が出る', await ev(`document.querySelector('.game-result')?.textContent ?? ''`));
+const cRes = await ev(`document.querySelector('.game-result')?.textContent ?? ''`);
+check(cRes.includes(cScore2.toLocaleString('en-US')), '結果の帯の点数 = iframe の点数（最後のピースの ↓ の点も）', `${cScore2} / ${cRes}`);
+// Reset → 次の Play は練習の設定（Colors 4）
+await clickIn('#reset');
+await sleep(400);
+await clickIn('#options');
+await ev(`(() => { const d = ${CDOC}; const r = d.querySelector('#difficulty'); r.value = '4'; r.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+await clickIn('#overlay_options button.close');
+await sleep(300);
+await clickIn('#play');
+check(await waitFor(`__vaGame.practice() === true && !!document.querySelector('.game-practice')`, 5000), '練習の設定（Colors 4）：窓に「記録されません」', await ev(`document.querySelector('.game-practice')?.textContent ?? ''`));
+await ev(`${FRAME}.focus()`);
+for (let i = 0; i < 3; i++) {
+  await SPACE();
+  await sleep(700);
+}
+const before = (await call(keyA, 'GET', '/api/games/columns/ranking?period=all')).body?.me?.score;
+// iframe の中の Esc で閉じる（練習は送らない）
+await ev(`${FRAME}.focus()`);
+await keyName('Escape', 27);
+check(await waitFor(`!document.querySelector('.game-modal')`, 3000), 'Columns の iframe の中で Esc を押すと窓が閉じる');
+await sleep(1200);
+const after = (await call(keyA, 'GET', '/api/games/columns/ranking?period=all')).body;
+check(after?.me?.score === before && after?.entries?.filter((e) => e.name === nameA).length === 1, '練習の設定のゲームは記録されない', `${before} → ${after?.me?.score}`);
+
+// ランキングの窓：ゲームのタブ
+const cr = await pt(`__va.ranking('columns')`);
+await click(cr.x, cr.y);
+check(await waitFor(`!!document.querySelector('.ranking-modal') && [...document.querySelectorAll('.ranking-modal .rank-games .tab')].map((b) => b.textContent).join('|') === '2048|Columns like game'`, 5000), '立て看板をクリック → ランキングの窓（2048 / Columns like game のタブ）');
+check(await waitFor(`document.querySelector('.ranking-modal .rank-games .tab.on')?.textContent === 'Columns like game' && [...document.querySelectorAll('.ranking-modal th')].some((t) => t.textContent === '開始Lv') && document.querySelectorAll('.ranking-modal .rank-table tbody tr:not(.rank-gap)').length >= 1`, 5000), 'Columns の立て看板から開くと Columns のタブ（開始Lv の列）');
+await sleep(400);
+await shot('game_pc_ranking_columns.png');
+await ev(`[...document.querySelectorAll('.ranking-modal .rank-games .tab')].find((b) => b.textContent === '2048').click()`);
+check(await waitFor(`[...document.querySelectorAll('.ranking-modal th')].some((t) => t.textContent === '最大')`, 4000), '2048 のタブに切り替わる（最大の列）');
+await ev(`document.querySelector('.ranking-modal button[aria-label="閉じる"]').click()`);
+
+// 2 人目（API）：Columns の筐体の前で記録 → 順位・立て看板・不正な記録
+B.send({ type: 'goto', x: 15, y: 10 });
+await sleep(4500);
+const cst = await call(keyB, 'POST', '/api/games/columns/start', { options: { mode: 0, colors: 5, height: 0, start: 2 } });
+check(cst.status === 200 && !cst.body.practice, '2 人目が Columns を始める（筐体の近く）', JSON.stringify(cst.body?.code ?? ''));
+const cMoves = Array.from({ length: 15 }, (_, i) => [i % 7, i % 3, 12, 1]);
+await sleep(15 * 210 + 300);
+const cfin = await call(keyB, 'POST', '/api/games/columns/finish', { session: cst.body.session, moves: cMoves });
+check(cfin.status === 200 && cfin.body.recorded && cfin.body.score >= 15 * 12 && cfin.body.detail?.startLevel === 2, '2 人目の Columns の記録（開始レベル 2）', `${cfin.status} ${JSON.stringify(cfin.body)}`);
+await sleep(500);
+const ctop = (await pt('__va.rankings()'))?.columns ?? [];
+const capi = (await call(keyA, 'GET', '/api/games/columns/ranking?period=all')).body?.entries?.slice(0, 5) ?? [];
+check(
+  ctop.length >= 2 && JSON.stringify(ctop.map((e) => [e.name, e.score])) === JSON.stringify(capi.map((e) => [e.name, e.score])) && ctop.some((e) => e.name === nameB),
+  'Columns の立て看板の上位（WebSocket の ranking）= ランキングの上位 5 人（2 人目も出る）',
+  ctop.map((e) => `${e.rank}:${e.name}:${e.score}`).join(' '),
+);
+await shot('game_pc_store_columns.png');
+const cbad = async (body, wait = 1500, opts = { mode: 0, colors: 5, height: 0, start: 1 }) => {
+  const s2 = (await call(keyB, 'POST', '/api/games/columns/start', { options: opts })).body;
+  await sleep(wait);
+  return (await call(keyB, 'POST', '/api/games/columns/finish', { session: s2.session, ...body })).body;
+};
+check((await cbad({ moves: 'hello' }))?.code === 'bad-moves', 'Columns：でたらめな記録 → bad-moves');
+check((await cbad({ moves: [[0, 0, 99999, 1]] }))?.code === 'bad-moves', 'Columns：↓ の点が多すぎる → bad-moves');
+check((await cbad({ moves: Array.from({ length: 30 }, (_, i) => [i % 7, 0, 0, 1]) }, 300))?.code === 'too-fast', 'Columns：速すぎる（30 個を 0.3 秒）→ too-fast');
+check((await cbad({ moves: [[0, 0, 0, 1], [1, 0, 0, 900]] }))?.code === 'too-fast', 'Columns：経過秒が実際の時間を超える → too-fast');
+check((await cbad({ moves: [[3, 0, 0, 1]], over: [3, 0] }))?.code === 'bad-moves', 'Columns：あふれていないのにゲームオーバー → bad-moves');
+const pr = await cbad({ moves: [[3, 0, 0, 1]] }, 400, { mode: 2, colors: 5, height: 0, start: 1 });
+check(pr?.recorded === false && pr?.practice === true, 'Columns：練習の設定（Time Attack）は記録しない', JSON.stringify(pr));
+
 B.ws.close();
 
 // ---- スマホ（390×844）：タップで開いて、スワイプで遊ぶ
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await send('Page.navigate', { url: `${base}/#dev` });
-check(await waitFor(`document.documentElement.classList.contains('layout-mobile') && !!window.__va && !!__va.game(0)`, 10000), 'スマホのレイアウトで入り直す');
+check(await waitFor(`document.documentElement.classList.contains('layout-mobile') && !!window.__va && !!__va.game('2048')`, 10000), 'スマホのレイアウトで入り直す');
 await sleep(2500);
 const touch = (type, pts) => send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1 })) });
 // タップ：ヘッドレスの Edge はタッチの返事が遅れることがあり、返事を待ってから指を離すと長押し（0.45 秒）になって
@@ -332,7 +492,7 @@ const tapAt = async (x, y) => {
   const b = touch('touchEnd', []);
   await Promise.all([a, b]);
 };
-const mg = await pt('__va.game(0)');
+const mg = await pt(`__va.game('2048')`);
 check(!!mg && mg.x > 0 && mg.x < 390 && mg.y > 0 && mg.y < 844, 'スマホの画面に 2048 の筐体が見える', JSON.stringify(mg));
 check((await pt(`__va.pick(${mg?.x}, ${mg?.y})`))?.kind === 'game', 'その点の当たり判定はゲーム筐体', JSON.stringify(await pt(`__va.pick(${mg?.x}, ${mg?.y})`)));
 // ヘッドレスの Edge はタッチの返事が遅れることがあるので、開かなければもう一度タップする
@@ -376,7 +536,7 @@ await ev(`document.querySelector('.game-modal button[aria-label="閉じる"]').c
 await sleep(1500);
 check(/記録しました/.test(await ev(`document.querySelector('.toast')?.textContent ?? ''`)), 'スマホで閉じても記録される');
 // ランキングの立て看板をタップ → 窓（遠くても歩かない）
-const mr = await pt('__va.ranking(0)');
+const mr = await pt(`__va.ranking('2048')`);
 const mBefore = await pt('__va.me()');
 if (mr) await tapAt(mr.x, mr.y);
 check(await waitFor(`!!document.querySelector('.ranking-modal')`, 5000), 'スマホ：立て看板をタップでランキングの窓');
@@ -384,6 +544,49 @@ const mAfter = await pt('__va.me()');
 check(mBefore && mAfter && mBefore.to.x === mAfter.to.x && mBefore.to.y === mAfter.to.y, 'ランキングは歩かずに開く');
 await sleep(500);
 await shot('game_mobile_ranking.png');
+
+// ---- スマホ：Columns like game（全画面のシートに収まる・元の下のボタンで遊べる）
+// 同じ URL（# だけ）への navigate では読み直さないので、ランキングの窓を閉じてから読み直す
+await ev(`document.querySelector('.ranking-modal button[aria-label="閉じる"]')?.click()`);
+await send('Page.reload');
+check(await waitFor(`document.documentElement.classList.contains('layout-mobile') && !!window.__va && !!__va.game('columns')`, 10000), 'スマホで入り直す（Columns）');
+await sleep(2500);
+const mc = await pt(`__va.game('columns')`);
+check(!!mc && mc.x > 0 && mc.x < 390 && mc.y > 0 && mc.y < 844, 'スマホの画面に Columns の筐体が見える', JSON.stringify(mc));
+for (let i = 0; i < 4 && mc && !(await ev(`!!document.querySelector('.game-modal')`)); i++) {
+  await tapAt(mc.x, mc.y);
+  await sleep(3000);
+}
+check(
+  await waitFor(`!!document.querySelector('.game-modal.game-columns') && !!${FDOC}?.querySelector('#play')`, 15000),
+  'タップで Columns の窓が開く（全画面のシート）',
+  await ev(`JSON.stringify({ pick: __va.pick(${mc?.x}, ${mc?.y}), me: __va.me(), toast: document.querySelector('.toast')?.textContent ?? null, modal: document.querySelector('.modal')?.className ?? null })`),
+);
+const mrect = await pt(`(() => { const r = document.querySelector('.game-modal').getBoundingClientRect(); return { w: r.width, h: r.height }; })()`);
+check(mrect && mrect.w >= 385 && mrect.h >= 800, 'Columns の窓は全画面', JSON.stringify(mrect));
+await sleep(800);
+const fit = await pt(`(() => { const d = ${FDOC}; const f = ${FRAME}.getBoundingClientRect(); const de = d.documentElement; const btns = [...d.querySelectorAll('#controls button, #menu button')].map((b) => b.getBoundingClientRect()); return { sw: de.scrollWidth, cw: de.clientWidth, sh: de.scrollHeight, ch: de.clientHeight, fh: f.height, inside: btns.every((r) => r.width > 0 && r.left >= -1 && r.right <= de.clientWidth + 1 && r.top >= -1 && r.bottom <= de.clientHeight + 1), controls: getComputedStyle(d.querySelector('#controls')).display }; })()`);
+check(fit && fit.sw <= fit.cw + 1 && fit.inside && fit.controls !== 'none', 'iframe の中が横にはみ出さず、Play・Left / Swap / Drop / Right のボタンが見える', JSON.stringify(fit));
+const tapIn = async (sel) => {
+  const r = await pt(`(() => { const f = ${FRAME}.getBoundingClientRect(); const e = ${FDOC}.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: f.left + b.left + b.width / 2, y: f.top + b.top + b.height / 2 }; })()`);
+  if (r) await tapAt(r.x, r.y);
+  return r;
+};
+for (let i = 0; i < 3 && !(await ev('__vaGame.session()')); i++) {
+  await tapIn('#play');
+  await sleep(1200);
+}
+check(await waitFor(`__vaGame.session() === true`, 5000), 'スマホ：Play をタップで始まる');
+for (const b of ['#left', '#swap', '#drop', '#right', '#drop', '#swap', '#drop']) {
+  await tapIn(b);
+  await sleep(b === '#drop' ? 700 : 200);
+}
+const mcnt = await ev('__vaGame.count()');
+check(mcnt >= 2, 'スマホ：下のボタン（Left / Swap / Drop / Right）で遊べる', `置いた数 ${mcnt}`);
+await shot('game_mobile_columns.png');
+await ev(`document.querySelector('.game-modal button[aria-label="閉じる"]').click()`);
+await sleep(1500);
+check(/記録しました/.test(await ev(`document.querySelector('.toast')?.textContent ?? ''`)), 'スマホで Columns を閉じても記録される');
 
 console.log(`NG ${ng}`);
 cdp.close();

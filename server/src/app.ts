@@ -469,7 +469,7 @@ export const createServer = (opts: AppOptions) => {
       const k = keyOf(req);
       if (k) limit(limits.gameKey, k, 'ゲームの開始');
       limit(limits.game, ipOf(req), 'ゲームの開始');
-      res.json(arcade.startGame(k, req.params.game));
+      res.json(arcade.startGame(k, req.params.game, req.body));
     }),
   );
   api.post(

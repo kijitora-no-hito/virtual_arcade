@@ -60,7 +60,7 @@ import { BgmControls } from './BgmControls';
 import { CabinetDialog } from './CabinetDialog';
 import { ChatForm, ChatPanel } from './ChatPanel';
 import { CraneDialog } from './CraneDialog';
-import { Game2048Dialog } from './Game2048Dialog';
+import { GameDialog } from './GameDialog';
 import { ChatPeek, ChatSheet, MobileMenu } from './Mobile';
 import { NoteDialog } from './NoteDialog';
 import { PosterDialog } from './PosterDialog';
@@ -436,9 +436,17 @@ export const ArcadePage = ({
         requestBox: () => (live.current.hits?.requestBoxes[0] ? center(live.current.hits.requestBoxes[0]) : null),
         door: () => (live.current.hits?.doors[0] ? center(live.current.hits.doors[0]) : null),
         calendar: () => (live.current.hits?.calendars[0] ? center(live.current.hits.calendars[0]) : null),
-        // v0.6.0：ゲーム筐体・ランキングの立て看板（i 番目。0 から）
-        game: (i = 0) => (live.current.hits?.games[i] ? center(live.current.hits.games[i].poly) : null),
-        ranking: (i = 0) => (live.current.hits?.rankings[i] ? center(live.current.hits.rankings[i].poly) : null),
+        // v0.6.0：ゲーム筐体・ランキングの立て看板（i 番目（0 から。手前のものが先）か、ゲームの id '2048' / 'columns'）
+        game: (i: number | string = 0) => {
+          const list = live.current.hits?.games ?? [];
+          const g = typeof i === 'string' ? list.find((x) => x.game === i) : list[i];
+          return g ? center(g.poly) : null;
+        },
+        ranking: (i: number | string = 0) => {
+          const list = live.current.hits?.rankings ?? [];
+          const g = typeof i === 'string' ? list.find((x) => x.game === i) : list[i];
+          return g ? center(g.poly) : null;
+        },
         rankings: () => client.rankings,
         stance: () => client.me()?.stance ?? null,
         room: () => client.room,
@@ -1158,7 +1166,7 @@ export const ArcadePage = ({
       )}
       {dialog?.kind === 'crane' && <CraneDialog client={client} id={dialog.id} meta={meta} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'game' && gameSpot(dialog.id) && (
-        <Game2048Dialog key={dialog.id} client={client} game={gameSpot(dialog.id)!.game} onClose={() => setDialog(null)} />
+        <GameDialog key={dialog.id} client={client} game={gameSpot(dialog.id)!.game} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'ranking' && (
         <RankingDialog game={dialog.game} admin={!!you?.admin} seq={client.rankingSeq} onClose={() => setDialog(null)} />

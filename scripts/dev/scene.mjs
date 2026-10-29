@@ -191,6 +191,16 @@ if (process.env.SCENE_GAME !== '0') {
   await Promise.all([walk(taiyo, 14, 5), walk(purple, 15, 5), walk(aoi, 13, 5), walk(boss, 16, 5), walk(pink, 14, 6)]);
   const got = await Promise.all([play2048(taiyo, 260, 3), play2048(purple, 180, 5), play2048(aoi, 120, 7), play2048(boss, 90, 9), play2048(pink, 60, 11)]);
   console.log('2048', got.map((r) => r?.score));
+  // Columns like game（DESIGN §16.8）：筐体 (14,9) の前で、ピースを列に順に置いた記録（点数はサーバがなぞり直して決める。ピースの数 × 200 ms より後に記録）
+  const playColumns = async (bot, n, bonus) => {
+    const st = await call(bot.key, 'POST', '/api/games/columns/start', { options: { mode: 0, colors: 5, height: 0, start: 1 + (n % 4) } });
+    const moves = Array.from({ length: n }, (_, i) => [(i * 3) % 7, i % 3, bonus, 1 + Math.floor(i / 2)]);
+    await sleep(Math.max(n * 220, (n / 2 + 1) * 1000) + 300);
+    return call(bot.key, 'POST', '/api/games/columns/finish', { session: st.session, moves }).catch((e) => console.log(e.message));
+  };
+  await Promise.all([walk(taiyo, 14, 10), walk(pink, 15, 10), walk(aoi, 13, 10)]);
+  const gotC = await Promise.all([playColumns(taiyo, 16, 12), playColumns(pink, 12, 8), playColumns(aoi, 9, 4)]);
+  console.log('columns', gotC.map((r) => r?.score));
 }
 
 // 配置：あおいは筐体の列の奥（筐体の陰）、みどりは No.6 の前に座って視聴、ほかは通路

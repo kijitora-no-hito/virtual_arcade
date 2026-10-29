@@ -1,5 +1,6 @@
-// ゲーム筐体で遊べるゲームの一覧と決まり（v0.6.0。DESIGN §16）。今は 2048 だけ。
-// 「まず」2048 から：ほかのゲームを足すときは GAMES に足し、floor.json の decor に game / ranking を置く。
+// ゲーム筐体で遊べるゲームの一覧と決まり（v0.6.0。DESIGN §16）。2048 と Columns like game（§16.8）。
+// ゲームを足すときは GAMES に足し、floor.json の decor に game / ranking を置き、gameRecord.ts になぞり直しを足し、
+// クライアントの GameDialog（iframe とのやりとり）・render.ts（筐体の画面の絵）に足す。
 
 import { FLOOR, type Face, type Floor, type Point } from './floor';
 
@@ -9,10 +10,16 @@ export interface GameInfo {
   title: string;
   /** 窓の中の iframe のページ（クライアントの public/ からの相対パス） */
   page: string;
+  /** 筐体の看板・立て看板の見出し（英大文字。立て看板は「〇〇 RANKING」） */
+  sign: string;
 }
 
-/** 遊べるゲーム（id は URL の /api/games/:game に使う） */
-export const GAMES: readonly GameInfo[] = [{ id: '2048', title: '2048', page: 'games/2048/index.html' }];
+/** 遊べるゲーム（id は URL の /api/games/:game に使う。並びはランキングの窓のタブの順） */
+export const GAMES: readonly GameInfo[] = [
+  { id: '2048', title: '2048', page: 'games/2048/index.html', sign: '2048' },
+  // 「Columns」はセガのゲームの名前（元のコードは非公式のクローン）なので、画面には「Columns like game」と出す（DESIGN §16.8 ✅ ユーザー指定）
+  { id: 'columns', title: 'Columns like game', page: 'games/columns/index.html', sign: 'COLUMNS LIKE' },
+];
 
 export const isGameId = (v: unknown): v is string => typeof v === 'string' && GAMES.some((g) => g.id === v);
 export const gameInfo = (id: string): GameInfo | undefined => GAMES.find((g) => g.id === id);

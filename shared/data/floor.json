@@ -47,6 +47,8 @@
     { "type": "door", "x": 2, "y": 0 },
     { "type": "calendar", "x": 4, "y": 0 },
     { "type": "game", "game": "2048", "x": 14, "y": 4, "face": "S" },
-    { "type": "ranking", "game": "2048", "x": 17, "y": 4 }
+    { "type": "ranking", "game": "2048", "x": 17, "y": 4 },
+    { "type": "game", "game": "columns", "x": 14, "y": 9, "face": "S" },
+    { "type": "ranking", "game": "columns", "x": 16, "y": 9 }
   ]
 }
