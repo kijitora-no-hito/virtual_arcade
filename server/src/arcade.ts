@@ -1537,7 +1537,7 @@ export class Arcade {
     return { id: r.id, rank, name: r.name, score: r.score, maxTile: r.maxTile, at: r.at, ...(r.detail ? { detail: r.detail } : {}) };
   }
 
-  /** 立て看板に描く上位（総合） */
+  /** ランキングのポスターに描く上位（総合） */
   rankingTop(game: string): RankingEntry[] {
     return this.store
       .gameBests(game)

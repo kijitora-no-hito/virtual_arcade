@@ -267,12 +267,12 @@ describe('replayColumns・checkGameRecord', () => {
 });
 
 describe('置き場所（floor.json）', () => {
-  it('16 番 (13,9) の隣 (14,9) に Columns like game の筐体（画面は S）、立て看板は (16,9)。名前は「Columns like game」', () => {
+  it('16 番 (13,9) の隣 (14,9) に Columns like game の筐体（画面は S）、ランキングは左の壁の 2 枚目のポスター。名前は「Columns like game」', () => {
     expect(gameInfo('columns')).toMatchObject({ title: 'Columns like game', sign: 'COLUMNS LIKE', page: 'games/columns/index.html' });
     const g = gameSpots(FLOOR, 'columns');
     expect(g).toHaveLength(1);
     expect(g[0]).toMatchObject({ game: 'columns', x: 14, y: 9, face: 'S' });
-    expect(rankingSpots(FLOOR, 'columns')[0]).toMatchObject({ x: 16, y: 9 });
+    expect(rankingSpots(FLOOR, 'columns')[0]).toMatchObject({ wall: 'left', index: 1 });
     // 筐体の番号は decor の中の game の並び順（2048 が 1）
     expect(gameSpots().map((s) => [s.id, s.game])).toEqual([
       [1, '2048'],

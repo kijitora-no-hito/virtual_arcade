@@ -299,7 +299,7 @@ export interface WelcomeMessage {
   notices: Notice[];
   posters: PosterView[];
   maxPlayers: number;
-  /** v0.6.0：ゲームごとのランキングの上位（立て看板に描く。総合の上位 5 人） */
+  /** v0.6.0：ゲームごとのランキングの上位（壁のランキングのポスターに描く。総合の上位 5 人） */
   rankings?: Record<string, RankingEntry[]>;
 }
 

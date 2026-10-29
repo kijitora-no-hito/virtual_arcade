@@ -52,7 +52,7 @@ import {
 import { drawCrossedArms } from '../game/character';
 import { ArcadeClient } from '../game/client';
 import { fitView, fromScreen, inPoly, type View } from '../game/iso';
-import { cabinetFront, drawScene, drawStatic, type PlayerPose, type SceneHits, type SceneUi, type WorldLayer } from '../game/render';
+import { cabinetFront, drawScene, drawStatic, rankingFaceOf, type PlayerPose, type SceneHits, type SceneUi, type WorldLayer } from '../game/render';
 import { loadMobilePrefs, saveMobilePrefs, type Layout } from '../layout';
 import { AdminDialog } from './AdminDialog';
 import { Badges } from './Badges';
@@ -442,7 +442,7 @@ export const ArcadePage = ({
         requestBox: () => (live.current.hits?.requestBoxes[0] ? center(live.current.hits.requestBoxes[0]) : null),
         door: () => (live.current.hits?.doors[0] ? center(live.current.hits.doors[0]) : null),
         calendar: () => (live.current.hits?.calendars[0] ? center(live.current.hits.calendars[0]) : null),
-        // v0.6.0：ゲーム筐体・ランキングの立て看板（i 番目（0 から。手前のものが先）か、ゲームの id '2048' / 'columns'）
+        // v0.6.0：ゲーム筐体（i 番目（0 から。手前のものが先））・ランキングのポスター（i 番目（0 から。画面の左から））か、ゲームの id '2048' / 'columns'）
         game: (i: number | string = 0) => {
           const list = live.current.hits?.games ?? [];
           const g = typeof i === 'string' ? list.find((x) => x.game === i) : list[i];
@@ -454,6 +454,8 @@ export const ArcadePage = ({
           return g ? center(g.poly) : null;
         },
         rankings: () => client.rankings,
+        // 壁のランキングのポスターにいま描いている上位（[名前, 点数]。ランキングが変わるとその場で描き直すことの確認用）
+        rankingFace: (game: string) => rankingFaceOf(game),
         // v0.6.0：観戦。遊んでいる人の頭上の名札（pid か、無ければいちばん手前）の位置・その人の pid と見ている人数
         playTag: (pid?: string) => {
           const t = (live.current.hits?.playTags ?? []).find((x) => !pid || x.pid === pid);
@@ -733,7 +735,7 @@ export const ArcadePage = ({
     // 筐体とクレーンゲーム（手前のものが先。重ならない）
     for (const c of L.hits.cabinets) if (inPoly(c.poly, x, y)) return { kind: 'cabinet', id: c.id };
     for (const c of L.hits.cranes) if (inPoly(c.poly, x, y)) return { kind: 'crane', id: c.id };
-    // ゲーム筐体・ランキングの立て看板（v0.6.0）
+    // ゲーム筐体・ランキングのポスター（v0.6.0。ポスターは左の壁）
     for (const g of L.hits.games) if (inPoly(g.poly, x, y)) return { kind: 'game', id: g.id };
     for (const g of L.hits.rankings) if (inPoly(g.poly, x, y)) return { kind: 'ranking', game: g.game };
     // ノートの机・要望箱（v0.4.0）

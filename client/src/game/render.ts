@@ -68,7 +68,7 @@ export interface SceneUi {
   doorOpen?: boolean;
   /** 予約部屋：店内の上の中央に出す部屋名の帯 */
   roomBanner?: string;
-  /** v0.6.0：カーソルの下のゲーム筐体・ランキングの立て看板（id）と、立て看板に描く上位（ゲームごと） */
+  /** v0.6.0：カーソルの下のゲーム筐体・ランキングのポスター（id）と、ポスターに描く上位（ゲームごと） */
   hoverGame?: number | null;
   hoverRanking?: number | null;
   rankings?: Record<string, RankingEntry[]>;
@@ -100,7 +100,7 @@ export interface SceneHits {
   /** v0.5.0：予約部屋の扉・予約カレンダー */
   doors: SP[][];
   calendars: SP[][];
-  /** v0.6.0：ゲーム筐体・ランキングの立て看板（手前のものが先） */
+  /** v0.6.0：ゲーム筐体（手前のものが先）・ランキングのポスター（壁。画面の左から） */
   games: Array<{ id: number; game: string; poly: SP[] }>;
   rankings: Array<{ id: number; game: string; poly: SP[] }>;
   /** v0.6.0：遊んでいる人（自分以外）の頭上の名札（🎮。クリックでその人のプレイを見る。手前の人が先） */
@@ -392,8 +392,8 @@ export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FL
     ctx.lineTo(m.x, m.y - dh);
     ctx.strokeStyle = 'rgba(30, 20, 60, 0.6)';
     ctx.stroke();
-    // 看板
-    const sign = toScreen(v, 0, (e.from + e.to) / 2, WALL_H * 0.78);
+    // 看板（v0.6.0：店の名前のネオンを掲示板の上へ移したので、それと重ならないよう少し高く）
+    const sign = toScreen(v, 0, (e.from + e.to) / 2, WALL_H * 0.86);
     ctx.save();
     ctx.translate(sign.x, sign.y);
     ctx.transform(1, -0.5, 0, 1, 0, 0);
@@ -407,22 +407,29 @@ export const drawStatic = (ctx: CanvasRenderingContext2D, v: View, f: Floor = FL
     ctx.restore();
   }
 
-  // 左の壁のネオンサイン（店の名前）
-  const signAt = toScreen(v, 0, Math.max(2.5, (e.from - 3) / 2), WALL_H * 0.62);
+  // 左の壁のネオンサイン（店の名前）。v0.6.0：奥寄り（rankingWall）にランキングのポスターを貼ったので、
+  // 左の壁に掲示板があればその上へ（掲示板の幅に収まるよう字を小さく）。無ければ前と同じ所
+  const bd = f.board.wall === 'left' ? f.board : null;
+  const signAt = bd
+    ? toScreen(v, 0, (bd.from + bd.to) / 2, WALL_H * 0.73)
+    : toScreen(v, 0, Math.max(2.5, (e.from - 3) / 2), WALL_H * 0.62);
+  const signMaxW = bd ? (bd.to - bd.from) * (TW / 2) * s : Infinity;
   ctx.save();
   ctx.translate(signAt.x, signAt.y);
   ctx.transform(1, -0.5, 0, 1, 0, 0);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = font(24 * s, 900);
+  const k = Math.min(1, signMaxW / Math.max(1, ctx.measureText(th.sign[0]).width));
+  ctx.font = font(24 * s * k, 900);
   ctx.shadowColor = th.sign[2];
   ctx.shadowBlur = 18;
   ctx.fillStyle = th.sign[3];
   ctx.fillText(th.sign[0], 0, 0);
-  ctx.font = font(14 * s, 800);
+  ctx.font = font(14 * s * Math.max(k, 0.85), 800);
   ctx.shadowColor = th.neonR[0];
   ctx.fillStyle = '#cffaff';
-  ctx.fillText(th.sign[1], 0, 22 * s);
+  ctx.fillText(th.sign[1], 0, 22 * s * Math.max(k, 0.85));
   ctx.restore();
 
   // 掲示板の枠（貼られたポスターは drawBoard で毎フレーム）
@@ -982,7 +989,7 @@ const drawCalendar = (ctx: CanvasRenderingContext2D, v: View, d: Decor) => {
   });
 };
 
-// ---------------------------------------------------------------- ゲーム筐体とランキングの立て看板（v0.6.0。DESIGN §16）
+// ---------------------------------------------------------------- ゲーム筐体とランキングのポスター（v0.6.0。DESIGN §16）
 
 /** ゲーム筐体：配信用の筐体（CAB_H 84）より少し高く、画面を大きく */
 const GAME_INSET = 0.06;
@@ -1161,7 +1168,7 @@ const drawScreenHextris = (ctx: CanvasRenderingContext2D, sx: number, sy: number
   ctx.restore();
 };
 
-/** ゲームごとの筐体・立て看板の色と画面の絵 */
+/** ゲームごとの筐体・ランキングのポスターの色と画面の絵 */
 interface GameLook {
   /** 箱の上・暗い面・明るい面 */
   top: string;
@@ -1178,8 +1185,8 @@ interface GameLook {
   screen: (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, t: number) => void;
   /** 操作盤：台・十字キー・ボタン 2 つ */
   panel: [string, string, string, string];
-  /** 立て看板：地・縁・見出し・見出しの字・縞・点数・名前・空き・脚 */
-  board: { bg: string; border: string; head: string; headFg: string; stripe: string; score: string; name: string; empty: string; leg: string };
+  /** ランキングのポスター：地・縁・見出し・見出しの字・縞・点数・名前・空き */
+  board: { bg: string; border: string; head: string; headFg: string; stripe: string; score: string; name: string; empty: string };
 }
 
 const GAME_LOOKS: Record<string, GameLook> = {
@@ -1202,7 +1209,6 @@ const GAME_LOOKS: Record<string, GameLook> = {
       score: '#776e65',
       name: '#4d453d',
       empty: 'rgba(119, 110, 101, 0.45)',
-      leg: '#8f7a66',
     },
   },
   // Columns like game（DESIGN §16.8）：藍色の箱・紫の看板「COLUMNS LIKE」・黒い井戸に新しい色の宝石
@@ -1225,7 +1231,6 @@ const GAME_LOOKS: Record<string, GameLook> = {
       score: '#ffd47a',
       name: '#f2ecff',
       empty: 'rgba(242, 236, 255, 0.45)',
-      leg: '#4b3c86',
     },
   },
   // Hextris（DESIGN §16.9）：紺の箱・青い看板「HEXTRIS」・画面は六角形のまわりに色のブロック
@@ -1249,7 +1254,6 @@ const GAME_LOOKS: Record<string, GameLook> = {
       score: '#c0392b',
       name: '#2c3e50',
       empty: 'rgba(44, 62, 80, 0.45)',
-      leg: '#7f8c8d',
     },
   },
 };
@@ -1369,25 +1373,51 @@ const gameCabinetPoly = (v: View, spot: GameSpot): SP[] => {
   return [b.floor[3], b.floor[2], b.floor[1], b.top[1], { x: top.x + w / 2, y: top.y }, { x: top.x + w / 2, y: top.y - h }, { x: top.x - w / 2, y: top.y - h }, { x: top.x - w / 2, y: top.y }, b.top[3]];
 };
 
-/** ランキングの立て看板：板の大きさ（s = 1 のとき）と脚の高さ */
-const RANK_W = 92;
-const RANK_H = 84;
-const RANK_LEG = 18;
+/**
+ * ランキングのポスター（v0.6.0。2026-10-30 ユーザー指定で床の立て看板から左の壁へ。DESIGN §16.11）。
+ * floor.json の rankingWall の範囲にゲームごとに 1 枚ずつ、画面の左から右へ並べて貼る。
+ * 高さは壁ぎわの植木（葉の上は壁の高さ 37 ほど）に隠れないよう、掲示板より高い所（壁の 27%〜95%）。
+ */
+const RANK_TOP = 0.95;
+const RANK_BOTTOM = 0.27;
+/** 範囲の両端の余白（マス。奥の角の側は扉の札と重ならないよう広め）と、ポスターの間（s = 1 のとき px） */
+const RANK_MARGIN = 0.1;
+const RANK_MARGIN_CORNER = 0.75;
+const RANK_GAP = 4;
 
-/** 立て看板の板の置き場所（画面の座標。左上・幅・高さ） */
-const rankingRect = (v: View, spot: RankingSpot) => {
-  const c = toScreen(v, spot.x + 0.5, spot.y + 0.5, RANK_LEG);
-  const w = RANK_W * v.s;
-  const h = RANK_H * v.s;
-  return { x: c.x - w / 2, y: c.y - h, w, h, foot: toScreen(v, spot.x + 0.5, spot.y + 0.5, 0) };
+/** ポスター 1 枚の面の座標系：左上が原点、u = 右へ（px）、w = 下へ（px）。at は面の上の点 → 画面 */
+const rankingFrame = (v: View, spot: RankingSpot, f: Floor = FLOOR) => {
+  const rw = f.rankingWall!;
+  const s = v.s;
+  const span = (rw.to - rw.from - RANK_MARGIN - RANK_MARGIN_CORNER) * (TW / 2) * s;
+  const gap = RANK_GAP * s;
+  const pw = (span - gap * (spot.count - 1)) / spot.count;
+  const ph = WALL_H * (RANK_TOP - RANK_BOTTOM) * s;
+  const z = WALL_H * RANK_TOP;
+  const origin = rw.wall === 'right' ? toScreen(v, rw.from + RANK_MARGIN_CORNER, 0, z) : toScreen(v, 0, rw.to - RANK_MARGIN, z);
+  const skew = rw.wall === 'right' ? 0.5 : -0.5;
+  const u0 = spot.index * (pw + gap);
+  const at = (u: number, w: number): SP => ({ x: origin.x + u0 + u, y: origin.y + w + skew * (u0 + u) });
+  return { pw, ph, origin, skew, u0, at };
 };
 
-/** 板の中身は変わったときだけ描き直す（上位・倍率・画素の比が同じなら前の絵を貼る） */
-const rankingCache = new Map<string, HTMLCanvasElement>();
+/** ポスターの輪郭（当たり判定） */
+const rankingPoly = (v: View, spot: RankingSpot): SP[] => {
+  const { pw, ph, at } = rankingFrame(v, spot);
+  return [at(0, 0), at(pw, 0), at(pw, ph), at(0, ph)];
+};
 
+/** ポスターの中身は変わったときだけ描き直す（上位・大きさ・画素の比が同じなら前の絵を貼る） */
+const rankingCache = new Map<string, HTMLCanvasElement>();
+/** 確認用（#dev の __va.rankingFace）：ゲームごとに、いちばん新しく壁に貼った中身（上位の名前と点数） */
+const rankingDrawn = new Map<string, Array<[string, number]>>();
+export const rankingFaceOf = (game: string) => rankingDrawn.get(game) ?? null;
+
+/** 幅の狭い縦長の紙なので、1 人を 2 行（順位と名前／点数）で描く。字は紙の大きさに比例させる（font() の 8px の下限を使わない。スマホは拡大で読む） */
 const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], game: string): HTMLCanvasElement => {
   const dpr = window.devicePixelRatio || 1;
   const key = `${game}|${w.toFixed(1)}|${h.toFixed(1)}|${dpr}|${JSON.stringify(top.map((e) => [e.name, e.score]))}`;
+  rankingDrawn.set(game, top.slice(0, 5).map((e) => [e.name, e.score]));
   const hit = rankingCache.get(key);
   if (hit) return hit;
   const look = lookOf(game).board;
@@ -1397,98 +1427,103 @@ const drawRankingFace = (w: number, h: number, s: number, top: RankingEntry[], g
   c.height = Math.ceil(h * dpr);
   const x = c.getContext('2d')!;
   x.setTransform(dpr, 0, 0, dpr, 0, 0);
-  // 板（2048 は元の 2048 の色：地 #faf8ef・文字 #776e65）
+  // 紙（2048 は元の 2048 の色：地 #faf8ef・文字 #776e65）
   x.fillStyle = look.bg;
   x.beginPath();
-  x.roundRect(0, 0, w, h, 5 * s);
+  x.roundRect(0, 0, w, h, 4 * s);
   x.fill();
   x.strokeStyle = look.border;
   x.lineWidth = 2 * s;
   x.stroke();
-  // 見出し（長い名前は幅に収まるよう小さく）
-  const hh = 16 * s;
+  // 見出し：ゲームの名前と RANKING の 2 行（長い名前は幅に収まるよう小さく）
+  const pad = 3 * s;
+  const hh = 22 * s;
   x.fillStyle = look.head;
   x.beginPath();
-  x.roundRect(3 * s, 3 * s, w - 6 * s, hh, 3 * s);
+  x.roundRect(pad, pad, w - pad * 2, hh, 3 * s);
   x.fill();
   x.fillStyle = look.headFg;
   x.textAlign = 'center';
   x.textBaseline = 'middle';
-  fitText(x, `${sign} RANKING`, w / 2, 3 * s + hh / 2 + 0.5, w - 10 * s, 9.5 * s);
-  // 上位 5 人（順位・名前・点数）
-  const rowH = (h - hh - 9 * s) / 5;
-  const y0 = 3 * s + hh + 3 * s;
+  fitText(x, sign, w / 2, pad + hh * 0.36, w - pad * 2 - 4 * s, 10.5 * s);
+  fitText(x, 'RANKING', w / 2, pad + hh * 0.76, w - pad * 2 - 4 * s, 6.5 * s, 800);
+  // 上位 5 人：1 行目に順位（大きく）と名前、2 行目に点数（右寄せ）
+  const y0 = pad + hh + 2 * s;
+  const rowH = (h - y0 - pad) / 5;
   const medal = ['#edc22e', '#b8b8c8', '#d0915a'];
+  const nameX = 13 * s;
   for (let i = 0; i < 5; i++) {
     const e = top[i];
-    const cy = y0 + rowH * (i + 0.5);
+    const ry = y0 + rowH * i;
     if (i % 2 === 0) {
       x.fillStyle = look.stripe;
-      x.fillRect(3 * s, y0 + rowH * i, w - 6 * s, rowH);
+      x.fillRect(pad, ry, w - pad * 2, rowH);
     }
     x.textBaseline = 'middle';
-    x.font = font(8 * s, 900);
+    x.font = `900 ${(10 * s).toFixed(1)}px ${FONT}`;
     x.textAlign = 'center';
     x.fillStyle = medal[i] ?? look.score;
-    x.fillText(String(i + 1), 9 * s, cy);
+    x.fillText(String(i + 1), pad + 4.5 * s, ry + rowH / 2);
+    x.textAlign = 'left';
     if (!e) {
       x.fillStyle = look.empty;
-      x.textAlign = 'left';
-      x.font = font(7.5 * s, 600);
-      x.fillText(i === 0 && !top.length ? 'まだ記録がありません' : '―', 16 * s, cy);
+      x.font = `600 ${(7 * s).toFixed(1)}px ${FONT}`;
+      if (i === 0 && !top.length) {
+        fitText(x, 'まだ記録が', nameX, ry + rowH * 0.3, w - nameX - pad, 7 * s, 600);
+        fitText(x, 'ありません', nameX, ry + rowH * 0.74, w - nameX - pad, 7 * s, 600);
+      } else x.fillText('―', nameX, ry + rowH / 2);
       continue;
     }
-    x.font = font(8 * s, 900);
-    x.textAlign = 'right';
-    x.fillStyle = look.score;
-    const score = formatScore(e.score);
-    x.fillText(score, w - 5 * s, cy);
-    const sw = x.measureText(score).width;
-    x.font = font(7.5 * s, 700);
-    x.textAlign = 'left';
+    x.font = `700 ${(7.5 * s).toFixed(1)}px ${FONT}`;
     x.fillStyle = look.name;
-    const room = w - 16 * s - 5 * s - sw - 4 * s;
+    const room = w - nameX - pad - 1 * s;
     let name = e.name;
     while (name.length > 1 && x.measureText(name).width > room) name = name.slice(0, -1);
     if (name !== e.name) name = ellipsis(name, Math.max(1, [...name].length - 1));
-    x.fillText(name, 16 * s, cy);
+    x.fillText(name, nameX, ry + rowH * 0.3);
+    x.textAlign = 'right';
+    x.fillStyle = look.score;
+    fitText(x, formatScore(e.score), w - pad - 1.5 * s, ry + rowH * 0.74, w - nameX - pad, 8 * s, 900);
   }
   if (rankingCache.size > 16) rankingCache.clear();
   rankingCache.set(key, c);
   return c;
 };
 
-const drawRankingBoard = (ctx: CanvasRenderingContext2D, v: View, spot: RankingSpot, top: RankingEntry[]) => {
+/** 壁のランキングのポスター（毎フレーム。掲示板と同じく壁なので人より先に描く。中身の絵は変わったときだけ作り直す） */
+const drawRankingWall = (
+  ctx: CanvasRenderingContext2D,
+  v: View,
+  spots: RankingSpot[],
+  rankings: Record<string, RankingEntry[]> | undefined,
+  hover: number | null | undefined,
+) => {
   const s = v.s;
-  const r = rankingRect(v, spot);
-  // 脚（2 本）と床の影
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-  ctx.beginPath();
-  ctx.ellipse(r.foot.x, r.foot.y, 22 * s, 7 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = lookOf(spot.game).board.leg;
-  ctx.lineWidth = 3 * s;
-  for (const dx of [-0.3, 0.3]) {
-    ctx.beginPath();
-    ctx.moveTo(r.foot.x + dx * r.w * 0.9, r.foot.y + 2 * s);
-    ctx.lineTo(r.foot.x + dx * r.w * 0.7, r.y + r.h - 2 * s);
-    ctx.stroke();
+  for (const spot of spots) {
+    const { pw, ph, origin, skew, u0 } = rankingFrame(v, spot);
+    ctx.save();
+    ctx.transform(1, skew, 0, 1, origin.x, origin.y);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 2 * s;
+    ctx.drawImage(drawRankingFace(pw, ph, s, rankings?.[spot.game] ?? [], spot.game), u0, 0, pw, ph);
+    ctx.shadowColor = 'transparent';
+    // 画鋲（上の 2 か所）
+    ctx.fillStyle = '#ff3d6e';
+    for (const k of [0.18, 0.82]) {
+      ctx.beginPath();
+      ctx.arc(u0 + pw * k, 1.5 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (hover === spot.id) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowColor = '#ffe14d';
+      ctx.shadowBlur = 14;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(u0 - 2 * s, -2 * s, pw + 4 * s, ph + 4 * s);
+    }
+    ctx.restore();
   }
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-  ctx.shadowBlur = 8;
-  ctx.drawImage(drawRankingFace(r.w, r.h, s, top, spot.game), r.x, r.y, r.w, r.h);
-  ctx.restore();
-};
-
-const rankingPoly = (v: View, spot: RankingSpot): SP[] => {
-  const r = rankingRect(v, spot);
-  return [
-    { x: r.x, y: r.y },
-    { x: r.x + r.w, y: r.y },
-    { x: r.x + r.w, y: r.foot.y + 4 * v.s },
-    { x: r.x, y: r.foot.y + 4 * v.s },
-  ];
 };
 
 /** 床の上の 4 点（タイル座標）を高さ z で多角形にする */
@@ -1506,11 +1541,6 @@ const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number, 
     case 'game': {
       const spot = gameSpots().find((g) => g.x === d.x && g.y === d.y);
       if (spot) drawGameCabinet(ctx, v, spot, t);
-      break;
-    }
-    case 'ranking': {
-      const spot = rankingSpots().find((g) => g.x === d.x && g.y === d.y);
-      if (spot) drawRankingBoard(ctx, v, spot, ui?.rankings?.[spot.game] ?? []);
       break;
     }
     case 'plant': {
@@ -1995,6 +2025,9 @@ export const drawScene = (
   }
   drawBigScreen(ctx, v, client, t, ui.hoverScreen);
   const posterHits = drawBoard(ctx, v, client.posters, ui.hoverBoard && ui.hoverPoster === null, ui.hoverPoster);
+  // v0.6.0：ランキングのポスター（左の壁）
+  const rankBoards = rankingSpots();
+  drawRankingWall(ctx, v, rankBoards, ui.rankings, ui.hoverRanking);
 
   // 行き先の印
   if (ui.target && t - ui.target.at < 1200) {
@@ -2020,15 +2053,12 @@ export const drawScene = (
   }
   const cranes = craneSpots();
   const games = gameSpots();
-  const rankBoards = rankingSpots();
   for (const d of FLOOR.decor) {
     const crane = d.type === 'crane' ? cranes.find((c) => c.x === d.x && c.y === d.y) : undefined;
     const gameSpot = d.type === 'game' ? games.find((c) => c.x === d.x && c.y === d.y) : undefined;
-    const rankSpot = d.type === 'ranking' ? rankBoards.find((c) => c.x === d.x && c.y === d.y) : undefined;
-    const hlPoly = gameSpot ? gameCabinetPoly(v, gameSpot) : rankSpot ? rankingPoly(v, rankSpot) : null;
+    const hlPoly = gameSpot ? gameCabinetPoly(v, gameSpot) : null;
     const hl =
       (!!gameSpot && ui.hoverGame === gameSpot.id) ||
-      (!!rankSpot && ui.hoverRanking === rankSpot.id) ||
       (!!crane && ui.hoverCrane === crane.id) ||
       (d.type === 'note' && !!ui.hoverNote) ||
       (d.type === 'requestbox' && !!ui.hoverRequest) ||
@@ -2130,13 +2160,10 @@ export const drawScene = (
       .slice()
       .sort((a, b) => b.x + b.y - (a.x + a.y))
       .map((g) => ({ id: g.id, game: g.game, poly: gameCabinetPoly(v, g) })),
-    rankings: rankBoards
-      .slice()
-      .sort((a, b) => b.x + b.y - (a.x + a.y))
-      .map((g) => ({ id: g.id, game: g.game, poly: rankingPoly(v, g) })),
+    rankings: rankBoards.map((g) => ({ id: g.id, game: g.game, poly: rankingPoly(v, g) })),
     playTags,
   };
-  // ゲーム筐体・ランキングの立て看板の札（カーソルを置いたとき。v0.6.0）
+  // ゲーム筐体・ランキングのポスターの札（カーソルを置いたとき。v0.6.0）
   if (ui.hoverGame) {
     const g = games.find((x) => x.id === ui.hoverGame);
     if (g) {
@@ -2149,8 +2176,9 @@ export const drawScene = (
   if (ui.hoverRanking) {
     const g = rankBoards.find((x) => x.id === ui.hoverRanking);
     if (g) {
-      const r = rankingRect(v, g);
-      pill(ctx, r.x + r.w / 2, r.y - 4 * ts, `${gameInfo(g.game)?.title ?? g.game} ランキング　クリックで見る`, 10.5 * ts, '#fff', 'rgba(20, 8, 40, 0.92)', GOLD);
+      const { pw, at } = rankingFrame(v, g);
+      const p = at(pw / 2, 0);
+      pill(ctx, p.x, p.y - 6 * ts, `${gameInfo(g.game)?.title ?? g.game} ランキング　クリックで見る`, 10.5 * ts, '#fff', 'rgba(20, 8, 40, 0.92)', GOLD);
     }
   }
   // 予約部屋の扉・予約カレンダーの札（いつも出す。カーソルを置いたら説明。v0.5.0）

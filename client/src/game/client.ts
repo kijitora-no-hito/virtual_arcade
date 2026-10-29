@@ -76,7 +76,7 @@ export class ArcadeClient {
   reservations: ReservationView[] = [];
   /** サーバの版がこのページの版と違う（再読み込みを勧める） */
   outdated = false;
-  /** v0.6.0：ゲームごとのランキングの上位（立て看板に描く。総合の上位 5 人） */
+  /** v0.6.0：ゲームごとのランキングの上位（壁のランキングのポスターに描く。総合の上位 5 人） */
   rankings: Record<string, RankingEntry[]> = {};
   /** ランキングが変わった回数（開いているランキングの窓が読み直す合図） */
   rankingSeq = 0;

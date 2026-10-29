@@ -172,7 +172,7 @@ describe('replay2048', () => {
 });
 
 describe('ゲームの一覧・置き場所（floor.json）', () => {
-  it('2048 の筐体とランキングの立て看板があり、どちらも GAMES にあるゲーム', () => {
+  it('2048 の筐体とランキングのポスターがあり、どちらも GAMES にあるゲーム', () => {
     expect(GAMES.map((g) => g.id)).toEqual(['2048', 'columns', 'hextris']);
     expect(isGameId('2048')).toBe(true);
     expect(isGameId('tetris')).toBe(false);
@@ -180,26 +180,59 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
     expect(g).toHaveLength(1);
     expect(g[0]).toMatchObject({ id: 1, game: '2048', face: 'S' });
     expect(rankingSpots(FLOOR, '2048')).toHaveLength(1);
-    for (const d of FLOOR.decor) if (d.type === 'game' || d.type === 'ranking') expect(isGameId(d.game)).toBe(true);
-    // 配信用の 8 番 (13,4) の隣に 2048 の筐体（ユーザー指定）。立て看板は (17,4)（右隣の (15,4) はあとで足す Hextris の筐体・
-    // 板は筐体の 2 マス右に置かないと筐体の画面を隠すので、Hextris の 2 マス右）。16 番の隣 (14,9)〜(16,9) はコラムス用に空けておく
+    for (const d of FLOOR.decor) if (d.type === 'game') expect(isGameId(d.game)).toBe(true);
+    for (const g of FLOOR.rankingWall?.games ?? []) expect(isGameId(g)).toBe(true);
+    // 配信用の 8 番 (13,4) の隣に 2048 の筐体（ユーザー指定）。右隣 (15,4) は Hextris、16 番の隣 (14,9) はコラムス
     expect(g[0]).toMatchObject({ x: 14, y: 4 });
-    expect(rankingSpots(FLOOR, '2048')[0]).toMatchObject({ x: 17, y: 4 });
-    // Hextris の筐体 (15,4)（2048 の右隣）と立て看板 (20,3)。前のマス (15,5)・(20,4) とコラムスの筐体の前 (14,10)・立て看板の前 (16,10) は通れる
     expect(gameSpots(FLOOR, 'hextris')[0]).toMatchObject({ x: 15, y: 4, face: 'S' });
-    expect(rankingSpots(FLOOR, 'hextris')[0]).toMatchObject({ x: 20, y: 3 });
     expect(isPassable(FLOOR, 15, 4)).toBe(false);
+    // 前のマスと、床の立て看板をやめて空いたマス (17,4)・(16,9)・(20,3)（2026-10-30 ユーザー指定でランキングを壁へ）は通れる
     for (const [x, y] of [
       [15, 5],
-      [20, 4],
       [14, 10],
       [15, 9],
-      [16, 10],
+      [17, 4],
+      [16, 9],
+      [20, 3],
     ])
       expect(isPassable(FLOOR, x, y), `${x},${y}`).toBe(true);
   });
 
-  it('3 台・3 枚（2048・Columns like game・Hextris）を置いても、通れるマスはどこへでも歩ける', () => {
+  it('ランキングは左の壁の奥寄り（y 0〜6。掲示板の手前）のポスター 3 枚（2048・Columns like game・Hextris の順）', () => {
+    expect(FLOOR.rankingWall).toEqual({ wall: 'left', from: 0, to: 6, games: ['2048', 'columns', 'hextris'] });
+    expect(FLOOR.board).toMatchObject({ wall: 'left', from: 6, to: 12 });
+    expect(rankingSpots().map((r) => [r.id, r.game, r.index, r.count, r.wall])).toEqual([
+      [1, '2048', 0, 3, 'left'],
+      [2, 'columns', 1, 3, 'left'],
+      [3, 'hextris', 2, 3, 'left'],
+    ]);
+    expect(rankingSpots(FLOOR, 'columns')).toHaveLength(1);
+    // 床の飾りの ranking は無くなった
+    expect((floorJson as { decor: Array<{ type: string }> }).decor.some((d) => d.type === 'ranking')).toBe(false);
+  });
+
+  it('loadFloor：rankingWall が入口・大画面・掲示板と重なる・おかしなゲーム・狭すぎるとエラー', () => {
+    const base = floorJson as FloorJson;
+    const withWall = (w: object | undefined) => ({ ...base, rankingWall: w }) as FloorJson;
+    expect(() => loadFloor(withWall(undefined))).not.toThrow();
+    expect(rankingSpots(loadFloor(withWall(undefined)))).toEqual([]);
+    expect(() => loadFloor(withWall({ wall: 'left', from: 0, to: 6, games: ['2048'] }))).not.toThrow();
+    // 掲示板 (6〜12)・入口 (12〜14)・大画面（右の壁 5〜15）と重なる
+    expect(() => loadFloor(withWall({ wall: 'left', from: 3, to: 7, games: ['2048'] }))).toThrow(/重なって/);
+    expect(() => loadFloor(withWall({ wall: 'left', from: 13, to: 16, games: ['2048'] }))).toThrow(/重なって/);
+    expect(() => loadFloor(withWall({ wall: 'right', from: 4, to: 8, games: ['2048'] }))).toThrow(/重なって/);
+    expect(() => loadFloor(withWall({ wall: 'right', from: 0, to: 4, games: ['2048'] }))).not.toThrow();
+    // 範囲外・ゲームが無い・形が不正・同じゲームが 2 枚・1 枚に 1 マス未満
+    expect(() => loadFloor(withWall({ wall: 'left', from: 14, to: 17, games: ['2048'] }))).toThrow(/範囲/);
+    expect(() => loadFloor(withWall({ wall: 'left', from: 0, to: 6, games: [] }))).toThrow(/games/);
+    expect(() => loadFloor(withWall({ wall: 'left', from: 0, to: 6, games: ['Bad Name'] }))).toThrow(/game/);
+    expect(() => loadFloor(withWall({ wall: 'left', from: 0, to: 6, games: ['2048', '2048'] }))).toThrow(/重なって/);
+    expect(() => loadFloor(withWall({ wall: 'left', from: 0, to: 2, games: ['2048', 'columns', 'hextris'] }))).toThrow(/狭すぎ/);
+    // GAMES に無いゲームは形が正しければ読めるが、ポスターには出さない
+    expect(rankingSpots(loadFloor(withWall({ wall: 'left', from: 0, to: 6, games: ['tetris', '2048'] }))).map((r) => r.game)).toEqual(['2048']);
+  });
+
+  it('3 台（2048・Columns like game・Hextris）を置いても、通れるマスはどこへでも歩ける（立て看板をやめて空いたマスも）', () => {
     const base = floorJson as FloorJson;
     expect(base.decor.some((d) => d.type === 'game' && d.game === 'columns' && d.x === 14 && d.y === 9)).toBe(true);
     expect(base.decor.some((d) => d.type === 'game' && d.game === 'hextris' && d.x === 15 && d.y === 4)).toBe(true);
@@ -212,14 +245,15 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
 
   it('loadFloor：game の game・face が無い・前のマスがふさがっていればエラー', () => {
     const base = floorJson as FloorJson;
-    const withDecor = (d: object) => ({ ...base, decor: [...base.decor.filter((x) => x.type !== 'game' && x.type !== 'ranking'), d] }) as FloorJson;
+    const withDecor = (d: object) => ({ ...base, decor: [...base.decor.filter((x) => x.type !== 'game'), d] }) as FloorJson;
     expect(() => loadFloor(withDecor({ type: 'game', x: 18, y: 5, face: 'S' }))).toThrow(/game/);
     expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 18, y: 5 }))).toThrow(/face/);
     expect(() => loadFloor(withDecor({ type: 'game', game: 'Bad Name', x: 18, y: 5, face: 'S' }))).toThrow(/game/);
     // ベンチ (17,9) の上のマス (17,8) の筐体は前のマスがベンチでふさがる
     expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 17, y: 8, face: 'S' }))).toThrow(/前のマス/);
-    expect(() => loadFloor(withDecor({ type: 'ranking', game: '2048', x: 17, y: 8 }))).toThrow(/前のマス/);
-    expect(() => loadFloor(withDecor({ type: 'ranking', game: '2048', x: 18, y: 5 }))).not.toThrow();
+    expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 18, y: 5, face: 'S' }))).not.toThrow();
+    // 床の立て看板（ranking）は v0.6.0 の途中でやめた（ランキングは壁の rankingWall）
+    expect(() => loadFloor(withDecor({ type: 'ranking', game: '2048', x: 18, y: 5 }))).toThrow(/type/);
   });
 });
 

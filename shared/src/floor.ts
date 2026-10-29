@@ -21,17 +21,17 @@ export interface CabinetSpot {
 
 /**
  * note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13）、door = 予約部屋の扉・calendar = 予約カレンダー（v0.5.0。DESIGN §14）、
- * game = 遊べるゲームの筐体・ranking = そのゲームのランキングの立て看板（v0.6.0。DESIGN §16）
+ * game = 遊べるゲームの筐体（v0.6.0。DESIGN §16。ランキングは床の立て看板をやめて壁のポスター rankingWall にした）
  */
-export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar' | 'game' | 'ranking';
+export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar' | 'game';
 
 export interface Decor {
   type: DecorType;
   x: number;
   y: number;
-  /** v0.6.0：game / ranking のゲーム（shared の GAMES の id。例 '2048'） */
+  /** v0.6.0：game のゲーム（shared の GAMES の id。例 '2048'） */
   game?: string;
-  /** v0.6.0：game の画面の向き（ranking は省くと S） */
+  /** v0.6.0：game の画面の向き */
   face?: Face;
 }
 
@@ -40,6 +40,11 @@ export interface WallSpan {
   wall: 'left' | 'right';
   from: number;
   to: number;
+}
+
+/** ランキングのポスター（壁に貼る。DESIGN §16.11）：壁の上の範囲と、貼るゲーム（並びは手前から奥へ = 画面の左から右へ） */
+export interface RankingWall extends WallSpan {
+  games: string[];
 }
 
 export interface FloorJson {
@@ -51,6 +56,8 @@ export interface FloorJson {
   screen: WallSpan;
   /** ポスターの掲示板（DESIGN §9） */
   board: WallSpan;
+  /** ランキングのポスター（v0.6.0。2026-10-30 ユーザー指定で床の立て看板から壁へ） */
+  rankingWall?: RankingWall;
   cabinets: CabinetSpot[];
   decor: Decor[];
 }
@@ -60,9 +67,12 @@ export interface Floor extends FloorJson {
   passable: boolean[][];
 }
 
-const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar', 'game', 'ranking'];
+const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar', 'game'];
 
-/** game / ranking の game の形（中身が GAMES にあるかは games.ts で確かめる） */
+/** ランキングのポスターに貼れるゲームの数 */
+export const RANKING_WALL_MAX = 4;
+
+/** game・rankingWall の game の形（中身が GAMES にあるかは games.ts で確かめる） */
 const GAME_ID_RE = /^[a-z0-9-]{1,20}$/;
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
@@ -96,10 +106,9 @@ export const loadFloor = (j: FloorJson): Floor => {
   }
   for (const d of j.decor) {
     if (!DECOR_TYPES.includes(d.type)) throw new Error(`floor: 飾りの type ${d.type} が不正です`);
-    if (d.type === 'game' || d.type === 'ranking') {
+    if (d.type === 'game') {
       if (typeof d.game !== 'string' || !GAME_ID_RE.test(d.game)) throw new Error(`floor: ${d.type} (${d.x},${d.y}) の game が不正です`);
-      if (d.type === 'game' ? d.face !== 'S' && d.face !== 'E' : d.face !== undefined && d.face !== 'S' && d.face !== 'E')
-        throw new Error(`floor: ${d.type} (${d.x},${d.y}) の face が不正です`);
+      if (d.face !== 'S' && d.face !== 'E') throw new Error(`floor: ${d.type} (${d.x},${d.y}) の face が不正です`);
     }
     block(d.x, d.y, d.type);
   }
@@ -107,9 +116,9 @@ export const loadFloor = (j: FloorJson): Floor => {
     const f = frontTile(c);
     if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: 筐体 ${c.id} の前のマスが通れません`);
   }
-  // v0.6.0：ゲームの筐体・ランキングの立て看板も前のマスが通れること
+  // v0.6.0：ゲームの筐体も前のマスが通れること
   for (const d of j.decor) {
-    if (d.type !== 'game' && d.type !== 'ranking') continue;
+    if (d.type !== 'game') continue;
     const f = frontTile({ x: d.x, y: d.y, face: d.face ?? 'S' });
     if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: ${d.type} (${d.x},${d.y}) の前のマスが通れません`);
   }
@@ -117,18 +126,27 @@ export const loadFloor = (j: FloorJson): Floor => {
   for (const s of j.spawn)
     if (!inBounds(j, s.x, s.y) || !passable[s.y][s.x]) throw new Error(`floor: spawn (${s.x},${s.y}) が通れません`);
   if (!j.board) throw new Error('floor: board がありません');
-  for (const w of [j.entrance, j.screen, j.board]) {
+  const rw = j.rankingWall;
+  if (rw) {
+    if (!Array.isArray(rw.games) || !rw.games.length || rw.games.length > RANKING_WALL_MAX)
+      throw new Error(`floor: rankingWall の games は 1〜${RANKING_WALL_MAX} 個です`);
+    for (const g of rw.games) if (typeof g !== 'string' || !GAME_ID_RE.test(g)) throw new Error(`floor: rankingWall の game ${g} が不正です`);
+    if (new Set(rw.games).size !== rw.games.length) throw new Error('floor: rankingWall の games が重なっています');
+    // 1 枚に壁 1 マス以上（狭いと字が読めない）
+    if (isInt(rw.from) && isInt(rw.to) && rw.to - rw.from < rw.games.length) throw new Error('floor: rankingWall が狭すぎます（1 枚に 1 マス以上）');
+  }
+  const spans = rw ? [j.entrance, j.screen, j.board, rw] : [j.entrance, j.screen, j.board];
+  for (const w of spans) {
     const len = w.wall === 'left' ? j.rows : j.cols;
     if ((w.wall !== 'left' && w.wall !== 'right') || !isInt(w.from) || !isInt(w.to) || w.from < 0 || w.to > len || w.from >= w.to)
-      throw new Error('floor: entrance / screen / board の範囲が不正です');
+      throw new Error('floor: entrance / screen / board / rankingWall の範囲が不正です');
   }
-  // 同じ壁の上で重ならないこと（入口・大画面・掲示板）
-  const spans = [j.entrance, j.screen, j.board];
+  // 同じ壁の上で重ならないこと（入口・大画面・掲示板・ランキングのポスター）
   for (let a = 0; a < spans.length; a++)
     for (let b = a + 1; b < spans.length; b++) {
       const A = spans[a];
       const B = spans[b];
-      if (A.wall === B.wall && A.from < B.to && B.from < A.to) throw new Error('floor: entrance / screen / board が壁の上で重なっています');
+      if (A.wall === B.wall && A.from < B.to && B.from < A.to) throw new Error('floor: entrance / screen / board / rankingWall が壁の上で重なっています');
     }
   return { ...j, passable };
 };

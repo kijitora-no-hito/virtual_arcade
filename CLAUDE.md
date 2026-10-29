@@ -16,16 +16,17 @@
   **v0.6.0**（2026-10-30。**未公開・ユーザー未確認**。DESIGN の末尾の表 G1〜G8 が叩き台）：ユーザー「virtual_arcadeでゲームが出来るようにしてください。まず以下をアーケード筐体から遊べるようにしてください。
   スコアランキングを店内のポスターで掲示されるようにしてください。https://github.com/gabrielecirulli/2048」・途中で「エモーションにベガ立ちを追加してください」。
   元の 2048（MIT）を `client/public/games/2048/` に同梱して iframe で動かし、サーバが種と手順をなぞり直して点数を決める（`shared/src/game2048.ts`。元の JS と一致することを vm で確かめるテストあり）。
-  筐体は配信用の 8 番の隣 (14,4)（ユーザー指定）、立て看板は (17,4)。**(15,4)・(15,5) と立て看板の予定地 (20,3) はあとで足す Hextris 用に空けてある**（DESIGN §16.2・§16.9）。
+  筐体は配信用の 8 番の隣 (14,4)（ユーザー指定）。ランキングは最初は床の立て看板 (17,4) だったが、**2026-10-30 のユーザー指定「ゲームのハイスコアボードがちょっと邪魔です。西側の壁際に寄せられますか？」で
+  3 ゲームとも左の壁の奥寄り（y 0〜6。掲示板の手前）の壁掛けのポスター 3 枚に移した**（`floor.json` の `rankingWall`。店の名前のネオンは掲示板の上へ。DESIGN §16.11）。
   続けて **Columns like game**（ユーザー「コラムスも遊べるようにしてください。https://github.com/jcfieldsdev/columns」・「画面には Columns like game として、宝石の色などは変えてください」。DESIGN §16.8・16.8.1）：
-  元の columns（MIT）を `client/public/games/columns/` に同梱、筐体 (14,9)（16 番の隣）・立て看板 (16,9)。サーバは種と「置いた記録 [x, rot, bonus, t]」から井戸をなぞり直す（`shared/src/columns.ts`。元の JS と vm で一致を見るテストあり）。
+  元の columns（MIT）を `client/public/games/columns/` に同梱、筐体 (14,9)（16 番の隣）・ランキングは左の壁の 2 枚目のポスター。サーバは種と「置いた記録 [x, rot, bonus, t]」から井戸をなぞり直す（`shared/src/columns.ts`。元の JS と vm で一致を見るテストあり）。
   ランキングに載るのは Standard・Colors 5・Height 0（開始レベルは自由）、ほかは練習。ランキングの窓はゲームのタブ × 総合・今月。
   続けて **Hextris**（ユーザー「hextrisもプレイできるようにしてください https://github.com/Hextris/hextris」・ランキングに載せるのはユーザー確認済み。DESIGN §16.9・16.9.1）：
-  元の Hextris（**GPLv3**）を `client/public/games/hextris/` に同梱（**このフォルダだけ GPLv3**。本体とは postMessage だけ）。筐体 (15,4)（2048 の右隣）・立て看板 (20,3)。
+  元の Hextris（**GPLv3**）を `client/public/games/hextris/` に同梱（**このフォルダだけ GPLv3**。本体とは postMessage だけ）。筐体 (15,4)（2048 の右隣）・ランキングは左の壁の 3 枚目のポスター。
   記録は**ブラウザの申告**（なぞり直さない）：消した記録 [k, m] と点数の一致・`点数 ≤ 経過秒 × 150`（`shared/src/hextris.ts`）。
   さらに **観戦**（ユーザーの問い「プレイ中の筐体のゲームを別のプレイヤーも視聴できるようにするのは可能ですか？」。DESIGN §16.10・16.10.1）：同じ部屋の人だけ。
   2048 は手の中継（見る人の iframe が ?view=1 でなぞる）、Columns・Hextris は遊ぶ人の窓が iframe の Canvas を縮めた WebP を 1 秒 5 枚まで WebSocket で送り、サーバが中継（保存しない）。
-  DB は新しい表 `game_scores` を足すだけ（Columns の途中で列 `detail` を足した。0.5.x へそのまま戻せる。Hextris・観戦で DB の形は変えていない）。下の「0.6.0 で決めたこと」・「確認したこと（v0.6.0）」。`npm test` 324 件。
+  DB は新しい表 `game_scores` を足すだけ（Columns の途中で列 `detail` を足した。0.5.x へそのまま戻せる。Hextris・観戦で DB の形は変えていない）。下の「0.6.0 で決めたこと」・「確認したこと（v0.6.0）」。`npm test` 326 件。
   **v0.5.1**（2026-10-26。未公開・ユーザー未確認）：(1) ユーザーのスクリーンショット（予約部屋・主催者でサイトの管理者・幅 1900px ほど）で PC の上のバーの項目が重なっていた不具合を直した。
   予約部屋の札・時計・部屋の管理・オープン部屋へは上のバーの下の帯（`.roombar`）に分け、狭い幅・拡大では「…」で省略（title あり）・段階的に隠す。下のバーの説明も短い版・隠す。
   確認は `scripts/dev/header-check.mjs`（104 通り NG 0）。(2) ユーザー「店内チャット24時間とかで消えるようにしましょう」：`CHAT_TTL_HOURS`（既定 24）を過ぎた発言を起動時と 1 分ごとに消す。
@@ -70,11 +71,12 @@
      予約部屋を撮るには、API で今の枠の予約を入れて（`POST /api/reservations`）、予約した人の鍵で `ROOM=reserved`。予約の時間の移り変わりはサーバが 5 秒ごとに見る。
      scene.mjs・確認の道具の WebSocket は hello に `proto: 2` を付ける（無いと古いページとして切られる）。同じ IP から WebSocket は 10 本までなので、scene（6 人）にほかの bot を足すと確認の道具がつなげなくなる。
   9. **v0.6.0（ゲーム筐体と 2048・Columns like game・ランキング・ベガ立ち）**：`node scripts/dev/game-check.mjs <BASE の URL> [撮る先のフォルダ]`（CDP と API・WebSocket。遠くから筐体をクリック → 歩いて窓 → iframe に矢印キー
-     （店内の人は動かない）→ ✕ で記録 → ゲームオーバーまで → 結果の帯 → Try again → ランキングの窓 → iframe の中の Esc → 2 人目が遊んで順位・立て看板の ranking → 不正な手順（でたらめ・動かない手・速すぎる・別のセッション・
+     （店内の人は動かない）→ ✕ で記録 → ゲームオーバーまで → 結果の帯 → Try again → ランキングの窓 → iframe の中の Esc → 2 人目が遊んで順位・壁のポスターの ranking（その場で描き直す）→ 不正な手順（でたらめ・動かない手・速すぎる・別のセッション・
      2048 の前の K・遠い・知らないゲーム）→ Columns like game（筐体をクリック → Play → iframe にキーでピースを置く → フォーカスが外れると一時停止 → ✕ で記録 → ゲームオーバーまで →
-     練習の設定（Colors 4）は記録しない → Esc → ランキングの窓のゲームのタブ → 2 人目の記録・立て看板 → 不正な記録）→ スマホ 390×844 でタップで開いてスワイプ・立て看板のタップ・
+     練習の設定（Colors 4）は記録しない → Esc → ランキングの窓のゲームのタブ → 2 人目の記録・ポスター → 不正な記録）→ スマホ 390×844 でタップで開いてスワイプ・ポスターのタップ（画面の外なら指でドラッグして見回す）・
      Columns の全画面のシート（iframe が横にはみ出さない・下のボタンで遊ぶ））。scene がいなくても動く（2 人を自分で作る。WebSocket を 2 本使う）。
-     `#dev` の `__va` に `game(i | 'id')`・`ranking(i | 'id')`（位置。i は手前から、'2048' / 'columns' でゲームを指定）・`rankings()`（立て看板の上位）・`stance()`、
+     `#dev` の `__va` に `game(i | 'id')`・`ranking(i | 'id')`（位置。筐体の i は手前から、壁のポスターの i は画面の左から、'2048' / 'columns' でゲームを指定）・`rankings()`（受け取った上位）・
+     `rankingFace('id')`（いま壁のポスターに描いている上位 [名前, 点数]）・`stance()`、
      ゲームの窓を開いている間は `__vaGame`（`game()`・`moves()`（Columns は置いた記録の配列）・`count()`・`gen()`・`session()`・`practice()`）。
      scene.mjs は v0.6.0 から 5 人が 2048・3 人が Columns・2 人が Hextris を遊んで記録し（`SCENE_GAME=0` でしない）、てんちょう・むらさきがベガ立ちをする。2048 を種から動かす道具は `scripts/dev/lib2048.mjs`
      （記録するときは「手の数 × 40 ms」より後に finish）。ヘッドレスの Edge はタッチの返事が遅れて、返事を待ってから指を離すと長押し（床へ歩く）になるので、タップは返事を待たずに続けて送る。
@@ -138,7 +140,7 @@
 - `rooms.ts`（v0.5.0）部屋 `RoomId`（open / reserved）・`PROTOCOL`（= 2）・予約の決まり（`SLOT_MS` 30 分・`RESERVATION_KEY_TOTAL_MS` 5 時間・14 日先・`RESERVATION_LIMITS`）・
   `validateReservation`（30 分の枠・長さ・文字数・NG 語・合言葉）・`overlaps`・`activeReservation` / `nextReservation` / `reservedTotalMs` / `maxLengthFrom`・JST の表示（`jstTime`・`jstDate`・`formatReservationRange`。Intl を使わない）・
   `closedRoomText`・扉と予約カレンダーの置き場所 `doorSpots` / `calendarSpots` / `doorFront`（floor.json の decor の `door` / `calendar`）
-- `games.ts`（v0.6.0）`GAMES`（2048・columns・hextris。id・題名（`Columns like game`）・iframe のページ・看板の字 `sign`）・`isGameId`・`gameSpots` / `rankingSpots`（floor.json の decor の `game` / `ranking`）・`GAME_NEAR`（2）・
+- `games.ts`（v0.6.0）`GAMES`（2048・columns・hextris。id・題名（`Columns like game`）・iframe のページ・看板の字 `sign`）・`isGameId`・`gameSpots`（floor.json の decor の `game`）/ `rankingSpots`（floor.json の `rankingWall`。壁のポスター）・`GAME_NEAR`（2）・
   `GAME_MOVE_MIN_MS`（40）・`GAME_MAX_MOVES`（200,000）・`GAME_SESSION_TTL_MS`（24 時間）・`RANKING_LIST_MAX`（50）・`RANKING_POSTER_TOP`（5）・`RANKING_ANNOUNCE`・`jstMonthStart`・`formatScore`
 - `game2048.ts`（v0.6.0）`mulberry32`・`Game2048`（元の game_manager.js と同じ順番・合体・乱数の使い方）・`replay2048(seed, moves)`（動かない手・終わった後の手・おかしな K は ok = false）・`MOVES_RE`・`countMoves`
 - `columns.ts`（v0.6.0。DESIGN §16.8）`ColumnsGame`（元の columns.js の Piece・update の固まったとき・findMatches・doGravity・レベル上げと同じ順番。Standard・Height 0 だけ）・`place({x, rot, bonus, t})`・`over(x, bonus)`・
@@ -148,7 +150,7 @@
   Hextris の GPL のコードは写していない（決まりだけを独自に書いた）。`games.ts` の `SELF_REPORTED_GAMES`（ブラウザの申告のゲーム = ランキングの注意書き）
 - `spectate.ts`（v0.6.0。DESIGN §16.10）観戦の決まり：`SPECTATE_DEFAULTS`（8 人・5 枚/秒・6 人・32 KB）・`WS_MAX_BYTES`（4 KB）/ `WS_SPECTATE_MAX_BYTES`（48 KB）/ `WS_BIG_TYPES`・`FRAME_GAMES` / `isFrameGame`・
   `frameBytes`（JPEG / WebP の data URL と大きさ）・`cleanSpectateInfo`・`SPECTATE_2048_SYNC_MAX`（45,000 字）/ `SPECTATE_2048_MOVES_MAX`（2,000 字）・`SPEC_MOVES_RE`
-- `floor.ts` の decor に `game` / `ranking`（`game` フィールド、game は `face` も。前のマスが通れること）・`looks.ts` に `STANCES`（v0.6.0。ベガ立ち）
+- `floor.ts` の decor に `game`（`game`・`face`。前のマスが通れること）と `rankingWall`（ランキングのポスターの壁の範囲と games。入口・大画面・掲示板と重ならない。床の `ranking` は 2026-10-30 にやめた）・`looks.ts` に `STANCES`（v0.6.0。ベガ立ち）
 
 ### server のファイル
 
@@ -209,7 +211,7 @@
   `App` は sessionStorage `va:room`（再読み込みのときだけ自動で入る）、`EntryPage` に「🔑 予約部屋」の欄、`AdminDialog` に「🔑 予約」タブ、スマホのメニューに［📅 予約表］［🔑 予約部屋に入る / 🚪 オープン部屋へ戻る］。
 - v0.6.0：`components/GameDialog.tsx`（最初は `Game2048Dialog`。iframe・postMessage（送り主とオリジンを確かめる。頭 `va2048:` / `va-columns:`）・start / finish・`gen` で古い手を捨てる・閉じる / 退店 / pagehide は keepalive で記録して結果を toast。
   Columns は iframe の Play で start・練習の帯・PC は横長の窓）・`components/RankingDialog.tsx`（ゲームのタブ × 総合・今月・上位 50・自分・管理者の削除。Columns は開始Lv・ジュエルの列）。
-  `render.ts` の `GAME_LOOKS`（ゲームごとの箱・看板の色・画面の絵（2048 は 4×4 の盤、Columns は黒い井戸に宝石が積もり縦 3 つが落ちる）・立て看板の色）・ゲーム筐体の絵（看板・画面・上の看板）・ランキングの立て看板（中身は変わったときだけ描き直す）・
+  `render.ts` の `GAME_LOOKS`（ゲームごとの箱・看板の色・画面の絵（2048 は 4×4 の盤、Columns は黒い井戸に宝石が積もり縦 3 つが落ちる）・ポスターの色）・ゲーム筐体の絵（看板・画面・上の看板）・左の壁のランキングのポスター `drawRankingWall`（毎フレーム重ねて描く。中身の絵は変わったときだけ作り直す）・
   当たり判定 `games` / `rankings`・札・頭上の 🎮 とベガ立ちの印。`character.ts` に腕組みのポーズと印 `drawCrossedArms`。`client.ts` に `rankings`・`rankingSeq`。
   `ArcadePage` のエモーションの欄に 9 個目（ベガ立ち）。
   Hextris・観戦：`GameDialog` に Hextris（頭 `va-hextris:`。Play で start・消した記録 [k, m]）と、観戦の遊ぶ人の側（「👀 n 人が見ています」［観戦を許可］・見る人がいる間だけ 2048 の手 / 画像を送る）。
@@ -446,9 +448,12 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
 - **点数の決め方**：サーバが種（`crypto` の 32 bit）と手の並び（`0〜3` と `K`）から盤をなぞり直す。クライアントの点数は使わない。速すぎる（手の数 × 40 ms より早い）・動かない手・終わった後の手・おかしな K は断る。
   セッションは鍵ごと 1 つ・1 回だけ・24 時間・メモリだけ（再起動をまたいだゲームは記録できない）。点数 0 は記録しない。**自動で解くプログラムに遊ばせることは防げない**（既知の限界）。
 - **一致の確かめ方**：`server/test/game2048-vm.test.ts` が同梱した元の JS をそのまま `node:vm` で動かし、1 手ごとに TS の `Game2048` と盤・点数・終わりを比べる（300 ゲーム）。元の JS を変えたら必ず回す。
-- **置き場所**：筐体 (14,4)・立て看板 (17,4)。板（画面に平行）は筐体の 1 マス右に置くと筐体の画面を隠す（(15,4) で撮って確かめた）ので 2 マス右。
-  (15,4)・(15,5) は Hextris、(14,9)〜(16,9) はコラムス用に空けてある（叩き台の並び：Hextris の看板 (20,3)・コラムスの看板 (16,9)。テストで歩けることは確かめた）。
-- **絵**：ゲーム筐体は配信用より高い茶色の箱・金色の看板「2048」・大きな画面に 4×4 の盤（3 つの盤を順に）・箱の上に光る金色の看板。立て看板は元の 2048 の色の板に「2048 RANKING」と上位 5 人。
+- **置き場所**：筐体 (14,4)・(15,4)（Hextris）・(14,9)（Columns）。ランキングは ~~床の立て看板 (17,4)・(20,3)・(16,9)~~ →
+  **2026-10-30 ユーザー指定「ゲームのハイスコアボードがちょっと邪魔です。西側の壁際に寄せられますか？」で左の壁（x = 0 の辺）の奥寄り y 0〜6 の壁掛けのポスター 3 枚**（DESIGN §16.11）。
+  `floor.json` の `"rankingWall": { "wall": "left", "from": 0, "to": 6, "games": ["2048", "columns", "hextris"] }`（画面の左から）。高さは壁の 27%〜95%（植木に下が隠れない）、奥の角の側は扉の札と重ならないよう 0.75 マス空ける。
+  1 枚の幅が狭い（PC で約 60 px）ので 1 人 2 行（順位と名前／点数）。1 枚の大きな板に 3 列でも列の幅はほぼ同じなので、色で見分けやすくクリックする所も分かれる 3 枚にした。
+  店の名前のネオンはポスターと重なるので掲示板の上へ移し（掲示板の幅に収まるよう少し小さく）、入口の看板を少し上げた。空いた床のマスは通れる（テスト）。
+- **絵**：ゲーム筐体は配信用より高い茶色の箱・金色の看板「2048」・大きな画面に 4×4 の盤（3 つの盤を順に）・箱の上に光る金色の看板。ランキングのポスターはゲームの色の紙に「2048」「RANKING」と上位 5 人・画鋲。
 - **窓**：PC は真ん中の窓（幅 600・iframe の高さ min(720px, 100vh − 190px)）、スマホは全画面のシート。開いたら iframe にフォーカス（親の矢印キーは iframe に取られるので店内の人は動かない）。
   ［🏆 ランキング］はこの窓の上に重ねて開く（閉じても 2048 はそのまま）。iframe の中の Esc は親に知らせて閉じる。
 - **記録の結果**：ゲームオーバー・New Game のときは窓の上の帯「記録しました：12,345 点（自己ベスト更新！総合 3 位・今月 1 位）」、閉じる・退店・ページを離れるときは店内の下の帯（toast）。
@@ -462,20 +467,20 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   元のコミット `8c6f90c` の `www/` から写し、写真・Dalek Pinpoint・manifest・favicon・mailto は入れない。Laila は OFL（google/fonts の本文で確かめた）なので残した（使っている 3 つだけ）。
   変えたのは名前・宝石の色・乱数（種から）・Play で親に頼む・親への知らせ（`va_bridge.js`）・↓ と落とすの点の不具合の修正・保存しない・窓に収める CSS だけ（`CHANGES.md`。コードに「va:」）。
   なぞり直しは元の細部（重なりも数える・斜めは端で切れる・マジックジュエルは連鎖の回でも下を見る・落としたピースははみ出してもゲームオーバーにならない）をそのまま写した。**元の JS を変えたら `columns-vm.test.ts` を必ず回す**。
-  筐体 (14,9)・立て看板 (16,9)（撮って画面を隠さないことを確かめた）。PC の窓は横長（幅 940）、スマホは全画面のシートで元の下のボタン。
+  筐体 (14,9)・ランキングは左の壁のポスター。PC の窓は横長（幅 940）、スマホは全画面のシートで元の下のボタン。
 - **Hextris**（DESIGN §16.9・**16.9.1 に実装で決めたことの一覧**）：元のコミット `3f4847d` から写し、広告・Google Analytics・外の IP への `$.get`・`a.js`・Google Fonts・SNS の共有・バッジ・meta・manifest を外した。
   使っていない字体（Lovelo・Quattrocento・Roboto）・部品（Hammer・js-cookie・sweet-alert・jsonfn・rrssb）は入れない。`va_bridge.js`（GPLv3）で種・Play・消去・ゲームオーバーを親とやりとり。
   記録の守りは弱い（ブラウザの申告）。上限 150 点/秒の根拠は DESIGN §16.9.1。**元の JS を変えたら game-check の Hextris の分を回す**（vm のテストは無い）。
 - **観戦**（DESIGN §16.10・**16.10.1**）：画像は親（MIT）が iframe の Canvas を読んで作る（ゲームのコードに手を入れない）。見る人がいる間だけ・同じ画面は送らない。サーバはメモリで中継だけ。
   2048 は手の中継（見る人の iframe が ?view=1 でなぞる。途中から来た人にはサーバが持っている手をまとめて）。上限は `SPECTATE_*`。帯域の実測は「確認したこと（v0.6.0）」。
-- **ゲームを足すとき**（Hextris など）：`shared/src/games.ts` の `GAMES`・`floor.json` の game / ranking・`gameRecord.ts`（設定と記録の確かめ方）・`GameDialog.tsx`（メッセージの頭とやりとり）・`render.ts` の `GAME_LOOKS`（色と画面の絵）・
-  `RankingDialog.tsx`（ゲームごとの列）・`game-check.mjs`。ランキング・DB・API・立て看板・🎮・チャットの案内・管理者の削除はゲームを問わずそのまま使える。
+- **ゲームを足すとき**（Hextris など）：`shared/src/games.ts` の `GAMES`・`floor.json` の decor の game と `rankingWall` の games（4 枚まで。増やすと 1 枚が狭くなる）・`gameRecord.ts`（設定と記録の確かめ方）・`GameDialog.tsx`（メッセージの頭とやりとり）・`render.ts` の `GAME_LOOKS`（色と画面の絵）・
+  `RankingDialog.tsx`（ゲームごとの列）・`game-check.mjs`。ランキング・DB・API・ポスター・🎮・チャットの案内・管理者の削除はゲームを問わずそのまま使える。
   観戦は Canvas のゲームなら `FRAME_GAMES` に足し、`spectateCapture.ts` に画面の読み方を足す。
 
 ## 今後の課題
 
 - **v0.6.0 でユーザーに確かめること**：DESIGN の末尾の表（G1 置き場所・G2 占有しない・G3 途中でやめた点数も記録・G4 総合と今月・G5 チャットの案内・G6 不正の防ぎ方・G7 元の見た目・G8 ベガ立ち・
-  G9〜G12 Columns like game の置き場所・見た目・ランキングの対象・PC の窓）、ゲーム筐体と立て看板の絵、2048・Columns の窓の大きさ（PC・スマホ）、宝石の新しい色、ベガ立ちの印とポーズ。
+  G9〜G12 Columns like game の置き場所・見た目・ランキングの対象・PC の窓）、ゲーム筐体とランキングのポスターの絵（左の壁へ移した位置・字の大きさ・店の名前のネオンを掲示板の上へ移したこと）、2048・Columns の窓の大きさ（PC・スマホ）、宝石の新しい色、ベガ立ちの印とポーズ。
 - **v0.6.0（Hextris・観戦）でユーザーに確かめること**：DESIGN の末尾の表 G13〜G17（Hextris の置き場所と上の看板を高くしたこと・記録の守り（150 点/秒）・観戦の見つけ方・既定は許可・ゲームオーバー後も見続ける）、
   Hextris の筐体の絵、観戦の画像の大きさ（幅 320）と枚数（1 秒 5 枚まで）。**Hextris の記録は開発者ツールで作れる**（ブラウザの申告）。とても長いコンボは上限に近づく（`HEXTRIS_SCORE_PER_SEC`）。
 - 観戦：画像は遊ぶ人のブラウザが作るので、遊ぶ人の PC・スマホの負担が少し増える（見る人がいる間だけ）。見る人の数・同時に見られている人の数の上限を超えると見られない（`full` / `busy`）。
@@ -510,6 +515,12 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
 - 店内の人数が多いと名前・吹き出しが重なる（重なりの調整はしていない）。
 
 ## 確認したこと（v0.6.0）
+
+- **ランキングを左の壁のポスターへ**（2026-10-30。DESIGN §16.11）：`npm run build`・`npm test`（326 件：shared の game2048.test.ts に rankingWall の 2 件を足した）・`npm run package`
+  （SHA-256 `073f721af76bbcc6558743264d06bf94b227ddc702b933be0cc79878c9bc2f0c`）。開発のサーバ（8796・一時 DB・scene）で `game-check.mjs` 163 通り NG 0
+  （ポスターの並び・当たり判定・空いたマスが通れる・ホバーの指の形・その場で描き直す・スマホでドラッグして見回してからタップ、を足した）、keyboard-check NG 0、header-check の quick は前からの幅 900 の管理者の NG 4 だけ。
+  画面：PC 1920×1080 の店内（壁のポスター 3 枚・筐体のまわりが空いた・店の名前のネオンが掲示板の上）・ホバーの札と縁・クリックで Hextris のタブの窓（歩かない）・スマホ 390×844 の店内とタップでランキングの窓。
+  途中で見つけて直したこと：スマホで名前の字が 8px の下限で大きくなり点数の行と重なった → 紙の大きさに比例する字に。スマホで予約部屋の扉の札が Hextris の 1 位に重なった → 奥の角の側の余白を 0.75 マスに。
 
 - **Hextris・観戦**（2026-10-30）：`npm run build`・`npm test`（324 件：shared 172・server 103・client 49。shared の hextris.test.ts 8 件・server の v06hextris.test.ts 3 件・v06spectate.test.ts 8 件を足した）・
   `npm run package`（SHA-256 `6d5d78f6d660b39995c9c1214274714b7ae235735b8c49d4001c986ab9aff38d`）。展開した tar を `BASE_PATH=/arcade`・別ポート 8797・一時 DB で起動し、`/arcade/games/hextris/index.html`・`va_bridge.js`・`LICENSE.md`・

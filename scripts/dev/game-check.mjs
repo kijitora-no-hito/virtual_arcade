@@ -1,9 +1,9 @@
 // ゲーム筐体と 2048・Columns like game・ランキングの確認（v0.6.0。DESIGN §16・§16.8）。Edge ヘッドレス（CDP）と API・WebSocket で：
 //   筐体をクリック → 歩いて窓が開く → iframe に矢印キー（親の人は動かない）→ 窓を閉じて記録 → もう一度開いてゲームオーバーまで → 結果の帯 →
-//   Try again で始め直す → ランキングの窓 → 2 人目（API と WebSocket）が遊んで順位が並ぶ・立て看板（ranking の受信）に反映 →
+//   Try again で始め直す → ランキングの窓 → 2 人目（API と WebSocket）が遊んで順位が並ぶ・壁のランキングのポスター（ranking の受信）に反映 →
 //   不正な手順（でたらめな手・速すぎる・別のセッション・遠い）が断られる →
 //   Columns like game：筐体をクリック → Play → iframe にキーでピースを置く → フォーカスが外れると一時停止 → 閉じて記録 → ゲームオーバーまで →
-//   練習の設定は記録しない → Esc → ランキングの窓のゲームのタブ → 2 人目の記録・立て看板 → 不正な記録 →
+//   練習の設定は記録しない → Esc → ランキングの窓のゲームのタブ → 2 人目の記録・ポスター → 不正な記録 →
 //   スマホ（390×844）でタップで開いてスワイプで遊ぶ（2048）・下のボタンで遊ぶ（Columns）
 //   node scripts/dev/game-check.mjs <BASE の URL（例 http://127.0.0.1:8796/arcade）> [撮る先のフォルダ]
 // 結果は 1 行ずつ「OK / NG 内容」。最後に NG の数で終わる（0 なら成功）。同じ IP の WebSocket を 2 本使う（scene の 6 人と合わせて 10 本まで）。
@@ -179,7 +179,30 @@ await sleep(800);
 await ev(`localStorage.setItem('va:key', ${JSON.stringify(JSON.stringify(keyA))}); sessionStorage.setItem('va:room', 'open')`);
 await send('Page.navigate', { url: `${base}/#dev` });
 check(await waitFor(`!!window.__va && !!__va.game('2048') && !!__va.me()`, 10000), '店内に入った（#dev の __va.game・__va.ranking がある）');
-check(!!(await pt(`__va.ranking('2048')`)), 'ランキングの立て看板の位置が取れる');
+check(!!(await pt(`__va.ranking('2048')`)), 'ランキングのポスターの位置が取れる');
+// 2026-10-30 ユーザー指定：ランキングは床の立て看板をやめて左の壁の奥寄り（掲示板の手前）のポスター 3 枚に
+{
+  const rp = [await pt(`__va.ranking('2048')`), await pt(`__va.ranking('columns')`), await pt(`__va.ranking('hextris')`)];
+  const bd = await pt('__va.board()');
+  check(
+    rp.every(Boolean) && rp[0].x < rp[1].x && rp[1].x < rp[2].x && rp[0].y > rp[1].y && rp[1].y > rp[2].y && bd && rp[0].x > bd.x && rp[0].y < bd.y,
+    'ポスターは左の壁に 2048・Columns like game・Hextris の順（画面の左下から右上へ。掲示板より奥）',
+    JSON.stringify({ rp, bd }),
+  );
+  const picks = [];
+  for (const [i, g] of ['2048', 'columns', 'hextris'].entries()) picks.push(await pt(`__va.pick(${rp[i]?.x}, ${rp[i]?.y})`));
+  check(picks.every((h, i) => h?.kind === 'ranking' && h.game === ['2048', 'columns', 'hextris'][i]), 'ポスターの当たり判定はそのゲームのランキング', JSON.stringify(picks));
+  const cab = await pt(`__va.game('2048')`);
+  check(rp.every((r) => Math.hypot(r.x - cab.x, r.y - cab.y) > 300), 'ポスターはゲーム筐体のまわりには無い');
+  const freed = [];
+  for (const [x, y] of [[17, 4], [16, 9], [20, 3]]) freed.push(await ev(`__va.passable(${x}, ${y})`));
+  check(freed.every(Boolean), '立て看板のあったマス (17,4)・(16,9)・(20,3) は通れる', JSON.stringify(freed));
+  // ホバー：札とポスターの縁が光る（hoverRanking）。カーソルは指の形
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rp[1].x, y: rp[1].y });
+  check(await waitFor(`[...document.querySelectorAll('canvas')].some((c) => c.style.cursor === 'pointer')`, 2000), 'ポスターにカーソルを置くと指の形');
+  await shot('game_pc_ranking_hover.png');
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 900, y: 900 });
+}
 
 // 2 人目（API・WebSocket。頭上の 🎮 を見る・記録を並べる・観戦する / される）
 const keyB = newKey();
@@ -196,7 +219,7 @@ check(await waitFor(`(${FDOC}?.querySelectorAll('.tile-container .tile').length 
 check(await waitFor(`document.activeElement === ${FRAME}`, 3000), '開いたら iframe にフォーカス');
 check(await ev(`!!${FDOC}?.querySelector('.va-credit a[href="https://github.com/gabrielecirulli/2048"]')`), '出典（Original: 2048 by Gabriele Cirulli）がある');
 check(await ev(`!/official version/.test(${FDOC}?.body?.textContent ?? '')`), '「official version」の注意書きは無い');
-check(await waitFor(`(__va.me() ? true : false)`, 1000) && (await pt('__va.rankings()'))?.['2048'] !== undefined, 'welcome のランキング（立て看板の上位）を受け取っている');
+check(await waitFor(`(__va.me() ? true : false)`, 1000) && (await pt('__va.rankings()'))?.['2048'] !== undefined, 'welcome のランキング（ポスターの上位）を受け取っている');
 
 // ---- 矢印キー（iframe の中で動く。親の人は動かない）
 const meBefore = await pt('__va.me()');
@@ -298,7 +321,14 @@ check(ia >= 0 && ib >= 0 && sorted && (g.score > (rk2.body.entries[ia]?.score ??
 check(rk2.body.entries.filter((e) => e.name === nameA).length === 1, '同じ人は 1 行（いちばん良い記録）');
 const top = (await pt('__va.rankings()'))?.['2048'] ?? [];
 const bTop = rk2.body.entries.slice(0, 5).some((e) => e.name === nameB);
-check(!bTop || top.some((e) => e.name === nameB), '立て看板の上位（WebSocket の ranking）に 2 人目が出る', top.map((e) => `${e.rank}:${e.name}:${e.score}`).join(' '));
+check(!bTop || top.some((e) => e.name === nameB), 'ポスターの上位（WebSocket の ranking）に 2 人目が出る', top.map((e) => `${e.rank}:${e.name}:${e.score}`).join(' '));
+// 壁は別の canvas に 1 回だけ描くが、ポスターは毎フレーム重ねて描くので、ランキングが変わるとその場で描き直される
+check(
+  await waitFor(`JSON.stringify(__va.rankingFace('2048')) === JSON.stringify(__va.rankings()['2048'].slice(0, 5).map((e) => [e.name, e.score]))`, 3000) &&
+    (!bTop || (await pt(`__va.rankingFace('2048')`))?.some(([n]) => n === nameB)),
+  '壁のポスターがその場で描き直される（いま描いている上位 = 受け取った上位。2 人目も出る）',
+  JSON.stringify(await pt(`__va.rankingFace('2048')`)),
+);
 check(B.msgs.some((m) => m.type === 'ranking'), '2 人目にも ranking が届く');
 await sleep(500);
 await shot('game_pc_store_after.png');
@@ -352,7 +382,7 @@ const CDOC = FDOC; // 同じ窓の iframe
 const cOverlay = (id) => ev(`!!${CDOC}?.querySelector('#overlay_${id}.open')`);
 const cScore = () => ev(`Number((${CDOC}?.querySelector('#score')?.textContent ?? 'NaN').replace(/,/g, ''))`);
 
-check(!!(await pt(`__va.game('columns')`)) && !!(await pt(`__va.ranking('columns')`)), 'Columns like game の筐体と立て看板の位置が取れる');
+check(!!(await pt(`__va.game('columns')`)) && !!(await pt(`__va.ranking('columns')`)), 'Columns like game の筐体とポスターの位置が取れる');
 const cg = await pt(`__va.game('columns')`);
 await click(cg.x, cg.y);
 check(await waitFor(`!!document.querySelector('.game-modal.game-columns')`, 15000), '遠くから Columns like game の筐体をクリック → 歩いて着いたら窓が開く');
@@ -453,15 +483,15 @@ check(after?.me?.score === before && after?.entries?.filter((e) => e.name === na
 // ランキングの窓：ゲームのタブ
 const cr = await pt(`__va.ranking('columns')`);
 await click(cr.x, cr.y);
-check(await waitFor(`!!document.querySelector('.ranking-modal') && [...document.querySelectorAll('.ranking-modal .rank-games .tab')].map((b) => b.textContent).join('|') === '2048|Columns like game|Hextris'`, 5000), '立て看板をクリック → ランキングの窓（2048 / Columns like game のタブ）');
-check(await waitFor(`document.querySelector('.ranking-modal .rank-games .tab.on')?.textContent === 'Columns like game' && [...document.querySelectorAll('.ranking-modal th')].some((t) => t.textContent === '開始Lv') && document.querySelectorAll('.ranking-modal .rank-table tbody tr:not(.rank-gap)').length >= 1`, 5000), 'Columns の立て看板から開くと Columns のタブ（開始Lv の列）');
+check(await waitFor(`!!document.querySelector('.ranking-modal') && [...document.querySelectorAll('.ranking-modal .rank-games .tab')].map((b) => b.textContent).join('|') === '2048|Columns like game|Hextris'`, 5000), 'ポスターをクリック → ランキングの窓（2048 / Columns like game のタブ）');
+check(await waitFor(`document.querySelector('.ranking-modal .rank-games .tab.on')?.textContent === 'Columns like game' && [...document.querySelectorAll('.ranking-modal th')].some((t) => t.textContent === '開始Lv') && document.querySelectorAll('.ranking-modal .rank-table tbody tr:not(.rank-gap)').length >= 1`, 5000), 'Columns のポスターから開くと Columns のタブ（開始Lv の列）');
 await sleep(400);
 await shot('game_pc_ranking_columns.png');
 await ev(`[...document.querySelectorAll('.ranking-modal .rank-games .tab')].find((b) => b.textContent === '2048').click()`);
 check(await waitFor(`[...document.querySelectorAll('.ranking-modal th')].some((t) => t.textContent === '最大')`, 4000), '2048 のタブに切り替わる（最大の列）');
 await ev(`document.querySelector('.ranking-modal button[aria-label="閉じる"]').click()`);
 
-// 2 人目（API）：Columns の筐体の前で記録 → 順位・立て看板・不正な記録
+// 2 人目（API）：Columns の筐体の前で記録 → 順位・ポスター・不正な記録
 B.send({ type: 'goto', x: 15, y: 10 });
 await sleep(4500);
 const cst = await call(keyB, 'POST', '/api/games/columns/start', { options: { mode: 0, colors: 5, height: 0, start: 2 } });
@@ -475,7 +505,7 @@ const ctop = (await pt('__va.rankings()'))?.columns ?? [];
 const capi = (await call(keyA, 'GET', '/api/games/columns/ranking?period=all')).body?.entries?.slice(0, 5) ?? [];
 check(
   ctop.length >= 2 && JSON.stringify(ctop.map((e) => [e.name, e.score])) === JSON.stringify(capi.map((e) => [e.name, e.score])) && ctop.some((e) => e.name === nameB),
-  'Columns の立て看板の上位（WebSocket の ranking）= ランキングの上位 5 人（2 人目も出る）',
+  'Columns のポスターの上位（WebSocket の ranking）= ランキングの上位 5 人（2 人目も出る）',
   ctop.map((e) => `${e.rank}:${e.name}:${e.score}`).join(' '),
 );
 await shot('game_pc_store_columns.png');
@@ -508,7 +538,7 @@ if (run('hextris') || run('spectate')) {
   // 確かめ用：iframe のアニメーション（requestAnimationFrame）が回っているか
   const rafRate = async () => ev(`new Promise((res) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else res(n); }; requestAnimationFrame(f); })`);
   console.log(`（店内のページの requestAnimationFrame：${await rafRate()} 回/秒）`);
-  check(!!(await pt(`__va.game('hextris')`)) && !!(await pt(`__va.ranking('hextris')`)), 'Hextris の筐体と立て看板の位置が取れる');
+  check(!!(await pt(`__va.game('hextris')`)) && !!(await pt(`__va.ranking('hextris')`)), 'Hextris の筐体とポスターの位置が取れる');
   const hg = await pt(`__va.game('hextris')`);
   await click(hg.x, hg.y);
   check(await waitFor(`!!document.querySelector('.game-modal.game-hextris')`, 15000), '遠くから Hextris の筐体をクリック → 歩いて着いたら窓が開く');
@@ -957,11 +987,27 @@ await shot('game_mobile_2048.png');
 await ev(`document.querySelector('.game-modal button[aria-label="閉じる"]').click()`);
 await sleep(1500);
 check(/記録しました/.test(await ev(`document.querySelector('.toast')?.textContent ?? ''`)), 'スマホで閉じても記録される');
-// ランキングの立て看板をタップ → 窓（遠くても歩かない）
-const mr = await pt(`__va.ranking('2048')`);
+// ランキングのポスター（左の壁）をタップ → 窓（遠くても歩かない）。画面の外なら指でドラッグして見回す
+let mr = await pt(`__va.ranking('2048')`);
+const inView = (q) => q && q.x > 30 && q.x < 360 && q.y > 120 && q.y < 640;
+for (let i = 0; i < 4 && mr && !inView(mr); i++) {
+  const [sx, sy] = [195, 420];
+  const [ex, ey] = [sx + Math.max(-300, Math.min(300, 195 - mr.x)), sy + Math.max(-300, Math.min(300, 360 - mr.y))];
+  await touch('touchStart', [[sx, sy]]);
+  for (let k = 1; k <= 8; k++) {
+    await touch('touchMove', [[sx + ((ex - sx) * k) / 8, sy + ((ey - sy) * k) / 8]]);
+    await sleep(30);
+  }
+  await touch('touchEnd', []);
+  await sleep(600);
+  mr = await pt(`__va.ranking('2048')`);
+}
+check(inView(mr) && (await pt(`__va.pick(${mr?.x}, ${mr?.y})`))?.kind === 'ranking', 'スマホ：左の壁のポスターが画面に入り、当たり判定はランキング', JSON.stringify(mr));
+await shot('game_mobile_ranking_wall.png');
 const mBefore = await pt('__va.me()');
 if (mr) await tapAt(mr.x, mr.y);
-check(await waitFor(`!!document.querySelector('.ranking-modal')`, 5000), 'スマホ：立て看板をタップでランキングの窓');
+for (let i = 0; i < 2 && mr && !(await waitFor(`!!document.querySelector('.ranking-modal')`, 2500)); i++) await tapAt(mr.x, mr.y);
+check(await waitFor(`!!document.querySelector('.ranking-modal')`, 5000) && (await ev(`document.querySelector('.ranking-modal .rank-games .tab.on')?.textContent`)) === '2048', 'スマホ：ポスターをタップでランキングの窓（2048 のタブ）');
 const mAfter = await pt('__va.me()');
 check(mBefore && mAfter && mBefore.to.x === mAfter.to.x && mBefore.to.y === mAfter.to.y, 'ランキングは歩かずに開く');
 await sleep(500);
