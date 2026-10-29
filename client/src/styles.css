@@ -375,6 +375,20 @@ textarea:focus {
 .emote:active {
   transform: scale(0.92);
 }
+/* v0.6.0：ベガ立ち（押している間＝腕を組んでいる間は押された見た目） */
+.emote.stance {
+  display: inline-grid;
+  place-items: center;
+}
+.emote.stance .stance-icon {
+  display: block;
+}
+.emote.stance.on {
+  border-color: #ff2d55;
+  background: rgba(255, 45, 85, 0.22);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), 0 0 10px rgba(255, 45, 85, 0.45);
+  transform: translateY(1px);
+}
 .help {
   font-size: 13px;
   color: var(--muted);
@@ -1090,6 +1104,129 @@ textarea:focus {
 .crane-note {
   margin: 10px 0 0;
   text-align: center;
+}
+
+/* ---------------------------------------------------------------- ゲーム筐体と 2048・ランキング（v0.6.0。DESIGN §16） */
+.modal.game-modal {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+}
+.game-result {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 800;
+  color: #1a1300;
+  background: #edc22e;
+  box-shadow: 0 0 12px rgba(237, 194, 46, 0.45);
+}
+.game-result.error {
+  color: #fff;
+  background: #6b1a2c;
+  box-shadow: none;
+}
+.game-frame {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #faf8ef;
+}
+.game-frame iframe {
+  display: block;
+  width: 100%;
+  height: min(720px, calc(100vh - 190px));
+  border: 0;
+  background: #faf8ef;
+}
+.game-note {
+  margin: 8px 0 0;
+}
+.modal.ranking-modal {
+  width: min(620px, calc(100vw - 32px));
+}
+.rank-me {
+  margin: 0 0 8px;
+}
+.rank-scroll {
+  max-height: min(56vh, 560px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.rank-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.rank-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  padding: 6px 8px;
+}
+.rank-table td {
+  padding: 5px 8px;
+  border-top: 1px solid rgba(46, 39, 99, 0.6);
+}
+.rank-no {
+  width: 3em;
+  text-align: center;
+  font-weight: 900;
+}
+.rank-name {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rank-score {
+  text-align: right;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.rank-tile {
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.rank-at {
+  white-space: nowrap;
+  font-size: 12px;
+}
+.rank-table th:nth-child(3),
+.rank-table th:nth-child(4) {
+  text-align: right;
+}
+.rank-1 .rank-no {
+  color: #edc22e;
+}
+.rank-2 .rank-no {
+  color: #c8c8dc;
+}
+.rank-3 .rank-no {
+  color: #e0a16a;
+}
+.rank-mine td {
+  background: rgba(255, 225, 77, 0.12);
+}
+.rank-mine .rank-name {
+  color: var(--yellow);
+}
+.rank-gap td,
+.rank-empty {
+  text-align: center;
+}
+.rank-note {
+  margin: 8px 0 0;
 }
 
 /* ---------------------------------------------------------------- ポスター欄 */
@@ -2192,6 +2329,24 @@ input[type='datetime-local'] {
 .layout-mobile .note-page {
   min-height: 0;
   padding: 10px 14px 28px;
+}
+/* 2048（v0.6.0）：全画面のシート。iframe は残りの高さいっぱい */
+.layout-mobile .modal.game-modal {
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  border-width: 0;
+  padding: calc(8px + env(safe-area-inset-top)) 10px calc(8px + env(safe-area-inset-bottom));
+}
+.layout-mobile .game-frame iframe {
+  height: 100%;
+}
+.layout-mobile .game-note {
+  display: none;
+}
+.layout-mobile .rank-at,
+.layout-mobile .rank-table th:nth-child(5) {
+  display: none;
 }
 .layout-mobile .note-modal.writing .note-book,
 .layout-mobile .note-modal.writing .note-nav {

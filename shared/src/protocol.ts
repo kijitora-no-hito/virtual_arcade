@@ -6,7 +6,7 @@ import type { NoteView } from './notes';
 import type { PosterView } from './posters';
 import type { ReservationView, RoomId } from './rooms';
 import type { Point } from './floor';
-import type { Emote, Look } from './looks';
+import type { Emote, Look, Stance } from './looks';
 
 /** ほかの人に見える人の情報（鍵・ハッシュは載せない。pid は公開 ID） */
 export interface PlayerView {
@@ -26,6 +26,10 @@ export interface PlayerView {
   pinned: PinnedChat | null;
   /** v0.5.0：予約部屋の主催者（いまの予約を予約した人。予約部屋の中だけ）。名前の前に「主催」 */
   host?: boolean;
+  /** v0.6.0：遊んでいるゲーム（ゲームの窓を開いている間。頭上の名前の横に 🎮）。null / 無し = 遊んでいない */
+  playing?: string | null;
+  /** v0.6.0：ポーズ（ベガ立ち = 腕を組む。動くまで続く）。null / 無し = ふつう */
+  stance?: Stance | null;
 }
 
 export interface PinnedChat {
@@ -170,6 +174,55 @@ export interface RoomEnterResponse {
   reservation: ReservationView | null;
 }
 
+// ---------------------------------------------------------------- ゲーム筐体とランキング（v0.6.0。DESIGN §16）
+
+/** ランキングの 1 行（鍵ごとのいちばん良い記録。名前はその記録を出したときのもの） */
+export interface RankingEntry {
+  /** 記録の id（管理者が消すとき） */
+  id: number;
+  rank: number;
+  name: string;
+  score: number;
+  maxTile: number;
+  at: number;
+}
+
+/** POST /api/games/:game/start */
+export interface GameStartResponse {
+  /** このゲームのセッション（finish で返す） */
+  session: string;
+  /** 32 bit の種（盤の乱数） */
+  seed: number;
+  /** サーバに記録された自分のベスト（無ければ 0） */
+  best: number;
+}
+
+/** POST /api/games/:game/finish */
+export interface GameFinishResponse {
+  /** 記録した（点数が 0 なら記録しない） */
+  recorded: boolean;
+  /** サーバがなぞり直した点数・いちばん大きいタイル・手の数 */
+  score: number;
+  maxTile: number;
+  moves: number;
+  /** 記録のあとの自分のベスト・今回で更新したか */
+  best: number;
+  newBest: boolean;
+  /** 自分の順位（自己ベストで。入っていなければ null） */
+  rank: { all: number | null; month: number | null };
+}
+
+/** GET /api/games/:game/ranking?period=all|month */
+export interface RankingResponse {
+  period: 'all' | 'month';
+  /** 上位（50 人まで） */
+  entries: RankingEntry[];
+  /** 自分（鍵を付けて読んだとき。記録が無ければ null） */
+  me: RankingEntry | null;
+  /** 記録のある人の数 */
+  total: number;
+}
+
 export interface MeResponse {
   profile: Profile | null;
   /** 入室を止められている（その時刻まで） */
@@ -183,7 +236,11 @@ export type ClientMessage =
   | { type: 'hello'; key: string; proto?: number; v?: string; room?: RoomId }
   | { type: 'goto'; x: number; y: number }
   | { type: 'emote'; emoji: Emote }
-  | { type: 'watch'; cabinet: number | null };
+  | { type: 'watch'; cabinet: number | null }
+  /** v0.6.0：ゲームの窓を開いた（game）・閉じた（null）。頭上の 🎮 */
+  | { type: 'play'; game: string | null }
+  /** v0.6.0：ポーズ（ベガ立ち）を付ける・外す（null）。歩くと外れる */
+  | { type: 'stance'; stance: Stance | null };
 
 export interface WelcomeMessage {
   type: 'welcome';
@@ -203,6 +260,8 @@ export interface WelcomeMessage {
   notices: Notice[];
   posters: PosterView[];
   maxPlayers: number;
+  /** v0.6.0：ゲームごとのランキングの上位（立て看板に描く。総合の上位 5 人） */
+  rankings?: Record<string, RankingEntry[]>;
 }
 
 export type ServerMessage =
@@ -224,6 +283,8 @@ export type ServerMessage =
   | { type: 'note-delete'; id: number; total: number }
   /** v0.4.0：要望の未読の件数（店内にいる管理者にだけ。added = 新しく届いた） */
   | { type: 'requests'; unread: number; added?: boolean }
+  /** v0.6.0：ランキングの上位が変わった（全部の部屋の全員へ） */
+  | { type: 'ranking'; game: string; top: RankingEntry[] }
   /** 退店した（このタブはつなぎ直さない） */
   | { type: 'bye' }
   | { type: 'you'; you: Profile }

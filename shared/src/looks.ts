@@ -61,6 +61,14 @@ export const EMOTES = ['👍', '😂', '😮', '👏', '❤️', '👋', '🎉',
 export type Emote = (typeof EMOTES)[number];
 export const isEmote = (v: unknown): v is Emote => typeof v === 'string' && (EMOTES as readonly string[]).includes(v);
 
+/**
+ * v0.6.0：ポーズ（DESIGN §16.7）。エモーションと違って状態として持ち、動く（歩く・座る・ゲームを始める・部屋を移る）まで続く。
+ * vega = ベガ立ち（胸の前で腕を組んで立つ。頭上に腕組みの印）
+ */
+export const STANCES = ['vega'] as const;
+export type Stance = (typeof STANCES)[number];
+export const isStance = (v: unknown): v is Stance => typeof v === 'string' && (STANCES as readonly string[]).includes(v);
+
 /** エモーションを頭上に出す時間 */
 export const EMOTE_MS = 2600;
 /** 吹き出しを出す時間 */

@@ -3,16 +3,21 @@
 > **`CLAUDE.local.md` があれば、それも読むこと**（この PC・自分のサーバだけの事情。git に入れない）。
 
 バーチャルゲームセンター：ブラウザから入れるクオータービューの店内を歩き、チャット・エモーションでやりとりし、筐体に YouTube の配信と宣伝を置ける。
-**Android アプリではなく Web アプリ**（ワークスペース共通の Android 方針は当てはまらない）。仕様の正本は `docs/DESIGN.md`（Q1〜Q7 はユーザー決定済み。§8〜§10 は v0.3.0、§11〜§13 は v0.4.0、§14 は v0.5.0）。
+**Android アプリではなく Web アプリ**（ワークスペース共通の Android 方針は当てはまらない）。仕様の正本は `docs/DESIGN.md`（Q1〜Q7 はユーザー決定済み。§8〜§10 は v0.3.0、§11〜§13 は v0.4.0、§14 は v0.5.0、§16 は v0.6.0）。
 
-- 版: v0.5.1（2026-10-26。PC の上のバーの重なりを直した・チャットの発言を 24 時間で消す。DESIGN §15・下の「0.5.1 で決めたこと」）。v0.5.0（2026-10-26。オープン部屋と予約部屋。DESIGN §14・下の「0.5.0 で決めたこと」）。v0.4.1（2026-10-25。スマホでキーボードを出すと縦横が切り替わって発言の欄のキーボードがすぐ閉じていたのを直した。v0.4.0 でスマホのレイアウト・コミュニケーションノート・機能追加要望箱を足した。v0.1.0〜v0.3.0 も同じ日）。GitHub `kijitora-no-hito/virtual_arcade`（公開・MIT ライセンス）。
+- 版: v0.6.0（2026-10-30。ゲーム筐体と 2048・スコアランキング・ベガ立ち。DESIGN §16・下の「0.6.0 で決めたこと」）。v0.5.1（2026-10-26。PC の上のバーの重なりを直した・チャットの発言を 24 時間で消す。DESIGN §15・下の「0.5.1 で決めたこと」）。v0.5.0（2026-10-26。オープン部屋と予約部屋。DESIGN §14・下の「0.5.0 で決めたこと」）。v0.4.1（2026-10-25。スマホでキーボードを出すと縦横が切り替わって発言の欄のキーボードがすぐ閉じていたのを直した。v0.4.0 でスマホのレイアウト・コミュニケーションノート・機能追加要望箱を足した。v0.1.0〜v0.3.0 も同じ日）。GitHub `kijitora-no-hito/virtual_arcade`（公開・MIT ライセンス）。
 - Node 22.13 以降（`node:sqlite` の `DatabaseSync` を使う。ネイティブビルドの要るパッケージは使わない方針）。
 
-## 引き継ぎ（2026-10-26 時点。続きから始めるときは最初にここを読む）
+## 引き継ぎ（2026-10-30 時点。続きから始めるときは最初にここを読む）
 
 - **読む順**：この節 → `docs/DESIGN.md`（✅ = ユーザー指定、🔧 = 叩き台）→ 下の「DESIGN にない部分で決めたこと」。
 - **状態**：v0.1 の範囲（DESIGN §1〜§4）・v0.2.0 の店内の BGM（DESIGN §7）・v0.3.0 のクレーンゲーム（§8）・ポスター欄（§9）・チャットのピン止め（§10）・
-  v0.4.0 のスマホのレイアウト（§11）・コミュニケーションノート（§12）・機能追加要望箱（§13）・v0.5.0 のオープン部屋と予約部屋（§14）を実装済み。
+  v0.4.0 のスマホのレイアウト（§11）・コミュニケーションノート（§12）・機能追加要望箱（§13）・v0.5.0 のオープン部屋と予約部屋（§14）・v0.6.0 のゲーム筐体と 2048・ランキング・ベガ立ち（§16）を実装済み。
+  **v0.6.0**（2026-10-30。**未公開・ユーザー未確認**。DESIGN の末尾の表 G1〜G8 が叩き台）：ユーザー「virtual_arcadeでゲームが出来るようにしてください。まず以下をアーケード筐体から遊べるようにしてください。
+  スコアランキングを店内のポスターで掲示されるようにしてください。https://github.com/gabrielecirulli/2048」・途中で「エモーションにベガ立ちを追加してください」。
+  元の 2048（MIT）を `client/public/games/2048/` に同梱して iframe で動かし、サーバが種と手順をなぞり直して点数を決める（`shared/src/game2048.ts`。元の JS と一致することを vm で確かめるテストあり）。
+  筐体は配信用の 8 番の隣 (14,4)（ユーザー指定）、立て看板は (17,4)。**(15,4)・(15,5) はあとで足す Hextris 用、(14,9) とその看板の場所はコラムス用に空けてある**（DESIGN §16.2）。
+  DB は新しい表 `game_scores` を足すだけ（0.5.x へそのまま戻せる）。下の「0.6.0 で決めたこと」・「確認したこと（v0.6.0）」。`npm test` 276 件。
   **v0.5.1**（2026-10-26。未公開・ユーザー未確認）：(1) ユーザーのスクリーンショット（予約部屋・主催者でサイトの管理者・幅 1900px ほど）で PC の上のバーの項目が重なっていた不具合を直した。
   予約部屋の札・時計・部屋の管理・オープン部屋へは上のバーの下の帯（`.roombar`）に分け、狭い幅・拡大では「…」で省略（title あり）・段階的に隠す。下のバーの説明も短い版・隠す。
   確認は `scripts/dev/header-check.mjs`（104 通り NG 0）。(2) ユーザー「店内チャット24時間とかで消えるようにしましょう」：`CHAT_TTL_HOURS`（既定 24）を過ぎた発言を起動時と 1 分ごとに消す。
@@ -56,6 +61,12 @@
      （shot.mjs は `ROOM=open`（既定）/ `reserved` / `none`（入店の画面））。`#dev` の `__va` に `door()`・`calendar()`・`room()` と `open({kind:'reserve'|'door'})`。
      予約部屋を撮るには、API で今の枠の予約を入れて（`POST /api/reservations`）、予約した人の鍵で `ROOM=reserved`。予約の時間の移り変わりはサーバが 5 秒ごとに見る。
      scene.mjs・確認の道具の WebSocket は hello に `proto: 2` を付ける（無いと古いページとして切られる）。同じ IP から WebSocket は 10 本までなので、scene（6 人）にほかの bot を足すと確認の道具がつなげなくなる。
+  9. **v0.6.0（ゲーム筐体と 2048・ランキング・ベガ立ち）**：`node scripts/dev/game-check.mjs <BASE の URL> [撮る先のフォルダ]`（CDP と API・WebSocket。遠くから筐体をクリック → 歩いて窓 → iframe に矢印キー
+     （店内の人は動かない）→ ✕ で記録 → ゲームオーバーまで → 結果の帯 → Try again → ランキングの窓 → iframe の中の Esc → 2 人目が遊んで順位・立て看板の ranking → 不正な手順（でたらめ・動かない手・速すぎる・別のセッション・
+     2048 の前の K・遠い・知らないゲーム）→ スマホ 390×844 でタップで開いてスワイプ・立て看板のタップ）。scene がいなくても動く（2 人を自分で作る。WebSocket を 2 本使う）。
+     `#dev` の `__va` に `game(i)`・`ranking(i)`（位置）・`rankings()`（立て看板の上位）・`stance()`、2048 の窓を開いている間は `__vaGame`（`moves()`・`count()`・`gen()`）。
+     scene.mjs は v0.6.0 から 5 人が 2048 を遊んで記録し（`SCENE_GAME=0` でしない）、てんちょう・むらさきがベガ立ちをする。2048 を種から動かす道具は `scripts/dev/lib2048.mjs`
+     （記録するときは「手の数 × 40 ms」より後に finish）。ヘッドレスの Edge はタッチの返事が遅れて、返事を待ってから指を離すと長押し（床へ歩く）になるので、タップは返事を待たずに続けて送る。
   8. **v0.5.1（PC のバーの重なり）**：`node scripts/dev/header-check.mjs <BASE の URL> <状態ファイル> <管理者の合言葉> [撮る先] [頭]`。状態ファイルが無ければ API で主催者（名前 20 文字）・ふつうの人・管理者と
      今の枠から 5 時間の予約（部屋名 26 文字）を作る。大きさ 13 通り（2560〜900・拡大 125%/150% は CSS の幅と DPR で）× 役割 4 × 部屋 2 で、上のバー・予約部屋の帯・下のバーの項目の
      重なり・はみ出し・右の欄の下へのもぐり・省略に title があるか・「エモーション」が 1 行かを見る。`CASES=quick`（3 通りの大きさ）・`ROLES=visitor,host,…`。
@@ -82,9 +93,9 @@
 | `shared/` | 型・店のレイアウト・経路探索・YouTube の URL・NG 語・筐体の決まり・クレーンゲームの判定・ポスターの検証。TS のソースをそのまま参照（ビルドなし。`main: src/index.ts`） |
 | `shared/data/` | `floor.json`（店のレイアウト。筐体 16 台・飾り（crane = 遊べるクレーンゲーム）・入口・大画面・掲示板 `board`・出現位置）・`ngwords.json`（NG 語）。**ビルド時にクライアントとサーバの両方に入る**（変えたら build / package し直す） |
 | `server/` | Express（REST）+ `ws`（WebSocket `{BASE_PATH}/ws`）+ SQLite。開発は `tsx`、本番は esbuild で 1 ファイル（`npm run package`） |
-| `client/` | React + Vite + TS。店内は Canvas 2D（ライブラリなし）。**相対パスでビルド**（`base: './'`） |
+| `client/` | React + Vite + TS。店内は Canvas 2D（ライブラリなし）。**相対パスでビルド**（`base: './'`）。`client/public/games/2048/`（v0.6.0）は元の 2048（MIT。素の JS。Vite がそのまま dist に写す。変えた所は同じフォルダの `CHANGES.md`） |
 | `deploy/` | サーバに置く手順書 `INSTRUCTIONS.md`（一般的な書き方。example.com・`/arcade/`）・`virtual-arcade.service`・`apache-arcade.inc`（tar にも入る） |
-| `scripts/` | `package.mjs`（release の tar.gz）・`hash-admin.mjs`（管理者の合言葉のハッシュ。tar の `tools/` にも入る）・`dev/shot.mjs`（Edge ヘッドレスで撮る。スマホの大きさ・タップも）・`dev/scene.mjs`（確認用に人を入れる）・`dev/bgm-check.mjs`（店内の BGM の確認）・`dev/touch-check.mjs`・`dev/reach-check.mjs`・`dev/note-check.mjs`（v0.4.0。スマホの指の操作・店のどこへでも行けるか・ノート）・`dev/keyboard-check.mjs`（v0.4.1。キーボードが出ても欄のフォーカス・縦横が変わらないか）・`dev/header-check.mjs`（v0.5.1。PC の上のバー・帯・下のバーの重なり） |
+| `scripts/` | `package.mjs`（release の tar.gz）・`hash-admin.mjs`（管理者の合言葉のハッシュ。tar の `tools/` にも入る）・`dev/shot.mjs`（Edge ヘッドレスで撮る。スマホの大きさ・タップも）・`dev/scene.mjs`（確認用に人を入れる）・`dev/bgm-check.mjs`（店内の BGM の確認）・`dev/touch-check.mjs`・`dev/reach-check.mjs`・`dev/note-check.mjs`（v0.4.0。スマホの指の操作・店のどこへでも行けるか・ノート）・`dev/keyboard-check.mjs`（v0.4.1。キーボードが出ても欄のフォーカス・縦横が変わらないか）・`dev/header-check.mjs`（v0.5.1。PC の上のバー・帯・下のバーの重なり）・`dev/game-check.mjs`・`dev/lib2048.mjs`（v0.6.0。ゲーム筐体と 2048・ランキング） |
 | `data/` | 開発用の DB `virtual_arcade.db`（git 管理外）・`data/bgm/`（店内の BGM の曲：音声ファイルと一覧 `bgm.json` は git 管理外・tar に入る。git に入るのは `README.md` と例 `bgm.example.json`） |
 | `bgm/` | 元の mp3（`tools/bgm/` の入力。**git にも tar にも入れない**）・`_loop_preview/`（確認用の WAV） |
 | `tools/bgm/` | `loop_bgm.py`（ループ点を探してイントロ・本体の ogg を作る）・`loudness.py`（音量をそろえる）・`manifest.py`（bgm.json）・`loops.json`（ループ点。曲の名前が入るので git 管理外） |
@@ -110,6 +121,10 @@
 - `rooms.ts`（v0.5.0）部屋 `RoomId`（open / reserved）・`PROTOCOL`（= 2）・予約の決まり（`SLOT_MS` 30 分・`RESERVATION_KEY_TOTAL_MS` 5 時間・14 日先・`RESERVATION_LIMITS`）・
   `validateReservation`（30 分の枠・長さ・文字数・NG 語・合言葉）・`overlaps`・`activeReservation` / `nextReservation` / `reservedTotalMs` / `maxLengthFrom`・JST の表示（`jstTime`・`jstDate`・`formatReservationRange`。Intl を使わない）・
   `closedRoomText`・扉と予約カレンダーの置き場所 `doorSpots` / `calendarSpots` / `doorFront`（floor.json の decor の `door` / `calendar`）
+- `games.ts`（v0.6.0）`GAMES`（今は 2048 だけ。id・題名・iframe のページ）・`isGameId`・`gameSpots` / `rankingSpots`（floor.json の decor の `game` / `ranking`）・`GAME_NEAR`（2）・
+  `GAME_MOVE_MIN_MS`（40）・`GAME_MAX_MOVES`（200,000）・`GAME_SESSION_TTL_MS`（24 時間）・`RANKING_LIST_MAX`（50）・`RANKING_POSTER_TOP`（5）・`RANKING_ANNOUNCE`・`jstMonthStart`・`formatScore`
+- `game2048.ts`（v0.6.0）`mulberry32`・`Game2048`（元の game_manager.js と同じ順番・合体・乱数の使い方）・`replay2048(seed, moves)`（動かない手・終わった後の手・おかしな K は ok = false）・`MOVES_RE`・`countMoves`
+- `floor.ts` の decor に `game` / `ranking`（`game` フィールド、game は `face` も。前のマスが通れること）・`looks.ts` に `STANCES`（v0.6.0。ベガ立ち）
 
 ### server のファイル
 
@@ -130,8 +145,14 @@
   予約：`reservations`（まだ終わっていない分の DB の写し）・`syncSlot`（時間の移り変わり。始まり・10 分前と 5 分前・終わりで全員をオープン部屋へ戻して `closeReservedRoom` で消す）・
   `grants`（合言葉を入れた鍵 → 予約の id。メモリだけ）・`createReservation` / `cancelReservation` / `listReservations` / `enterRoom`・`moveTo`（部屋を移す。新しい welcome を送る）。
   `db.ts` に `reservations` の表（新しい表だけ）。`app.ts` は hello の `proto` を見て古いページに再読み込みを頼む・5 秒ごとに `syncSlot`・合言葉の間違いだけを数える（`RateLimiter.blocked`）。
+- v0.6.0：`db.ts` に `game_scores` の表（新しい表と索引だけ）と `gameBests`（鍵ごとのベスト。同点は先。since で今月）・`bestScoreOf`。
+  `arcade.ts` にゲームのセッション（`gameSessions`。メモリだけ）・`startGame` / `finishGame`（なぞり直し・速すぎる手・チャットの案内）・`ranking` / `rankingTop` / `deleteGameScore`・`play`（🎮）・
+  `setStance`（ベガ立ち。goto・watch・play・部屋を移るで外す）。`app.ts` は `/api/games/…` の口（finish だけ JSON 256 KB）と WebSocket の `play` / `stance`。
 - テスト：`test/harness.ts`（テスト用のサーバ・WebSocket の道具。v0.3.0 で api.test.ts から分けた。v0.5.0 から hello に proto: 2、`connect(key, path, room)`）・`api.test.ts`・`v03.test.ts`（クレーンゲーム・バッジ・ポスター・ピン止め）・`v04.test.ts`（ノート・要望）・
-  `v05.test.ts`（予約・合言葉・部屋ごと・時間の終わり。時計は `clock.t` で進めて `syncSlot()`）・`unit.test.ts`。shared は `test/rooms.test.ts`（v0.5.0）
+  `v05.test.ts`（予約・合言葉・部屋ごと・時間の終わり。時計は `clock.t` で進めて `syncSlot()`）・`unit.test.ts`。shared は `test/rooms.test.ts`（v0.5.0）。
+  v0.6.0：`server/test/v06.test.ts`（ゲームの API・WebSocket・DB・ベガ立ち。種は `Config.rng` で決める）・`server/test/game2048-vm.test.ts`（同梱した元の JS を `node:vm` で動かし、
+  ランダムな手で 300 ゲーム、1 手ごとの盤・点数・終わりと `replay2048` が一致するか。2048 まで遊んだ記録（K あり）も）・`shared/test/game2048.test.ts`（なぞり直しの決まり・置き場所・あとで足す筐体の場所でも歩けるか）。
+  2048 まで遊んだ記録は `shared/test/fixtures/win2048.json`（種 2）
 
 ### client のファイル
 
@@ -152,6 +173,10 @@
 - v0.5.0：`components/ReservationDialog.tsx`（予約表 `ReservationDialog`：カレンダー（PC 7 日・スマホ 1 日）・一覧・予約の形、扉の窓 `RoomDoorDialog`：合言葉・閉まっているときの「次は ○○」・オープン部屋へ戻る、`useReservations`）。
   `game/client.ts` に `room`・`roomSeq`・`reservations`・`outdated`（`CLIENT_VERSION`）。`render.ts` は部屋の色 `THEMES`（`drawStatic(…, room)`）・扉と予約カレンダー・上の中央の部屋名の帯。
   `App` は sessionStorage `va:room`（再読み込みのときだけ自動で入る）、`EntryPage` に「🔑 予約部屋」の欄、`AdminDialog` に「🔑 予約」タブ、スマホのメニューに［📅 予約表］［🔑 予約部屋に入る / 🚪 オープン部屋へ戻る］。
+- v0.6.0：`components/Game2048Dialog.tsx`（iframe・postMessage（送り主とオリジンを確かめる）・start / finish・`gen` で古い手を捨てる・閉じる / 退店 / pagehide は keepalive で記録して結果を toast）・
+  `components/RankingDialog.tsx`（総合・今月・上位 50・自分・管理者の削除）。`render.ts` にゲーム筐体の絵（金色の看板・4×4 の盤・上の看板）・ランキングの立て看板（中身は変わったときだけ描き直す）・
+  当たり判定 `games` / `rankings`・札・頭上の 🎮 とベガ立ちの印。`character.ts` に腕組みのポーズと印 `drawCrossedArms`。`client.ts` に `rankings`・`rankingSeq`。
+  `ArcadePage` のエモーションの欄に 9 個目（ベガ立ち）。
 - `components/` `Badges`（名前の後ろのバッジ。4 色）・`CraneDialog`（クレーンゲームの窓）・`PosterDialog`（ポスターの一覧・詳細・書く）・`EntryPage`（入店・名前と見た目。入店のボタンで BGM を鳴らせるようにする・BGM のクレジット・版）・`BgmControls`（下のバーの BGM の操作と曲の一覧）・`ArcadePage`（店内・描画のループ・キーボード・マウス・埋め込み）・`ChatPanel`・`CabinetDialog`・`ScreenDialog`（大画面の一覧）・`WatchView`（視聴画面）・`AdminDialog`
 
 ## コマンド
@@ -194,12 +219,18 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   店内にいればその場で移って新しい `welcome`、いなければ `moved: false`（入店の画面。このあと hello の room で入る））。合言葉のハッシュ・鍵はどの返事にも載せない。
   主催者（予約部屋の中で、その予約の間）とサイトの管理者：`POST /room/remove {pid}`（オープン部屋へ戻し、この予約の間は入れない）/ `POST /room/passphrase {passphrase}` / `POST /room/end`（早めに終える）。
   お知らせ・発言の削除（`/admin/notices`・`/admin/chat/:id`）と筐体を空ける（`/cabinets/:id/release`）も主催者は予約部屋でだけできる
+- ゲーム（v0.6.0。DESIGN §16）：`POST /games/:game/start`（店内にいて、そのゲームの筐体に 2 マス以内。`too-far`。鍵ごと 1 分 20 回・IP ごと 60 回）→ `{session, seed, best}` /
+  `POST /games/:game/finish {session, moves}`（鍵ごと 1 分 20 回。この口だけ JSON 256 KB。店内にいなくてよい。`no-session` / `bad-moves` / `too-fast`）→
+  `{recorded, score, maxTile, moves, best, newBest, rank: {all, month}}` / `GET /games/:game/ranking?period=all|month`（誰でも。鍵があれば `me`）/
+  `DELETE /admin/games/:game/scores/:id`（サイトの管理者）。知らない `:game` は 404。2048 のページは `{BASE_PATH}/games/2048/index.html`（静的配信）
 - 店内の BGM のファイル：`GET {BASE_PATH}/bgm/<ファイル名>`（API の外。一覧の intro / body にあるものだけ。Range 可・`Cache-Control: public, max-age=3600`）
 - WebSocket `{BASE_PATH}/ws`：最初に `{type:'hello', key, proto: 2, v, room}`（鍵を URL に載せない。v0.5.0 から proto が無ければ `kicked`「再読み込みしてください」で切る）。その後 `goto {x,y}`（サーバが A* で経路を決めて全員に `move`。通れないマスは `blocked`）/
   `emote {emoji}` / `watch {cabinet | null}`（配信中の筐体の前のマスに座る）。
   サーバからは `welcome`（自分・全員・筐体・チャット・お知らせ・ポスター・サーバの時刻）/ `join` / `leave` / `player`（バッジ・ピン止めの変化も）/ `move` / `emote` / `chat` / `chat-delete` / `cabinet` / `notices` /
   `posters` / `you` / `kicked` / `bye`（退店した）/ `error`。v0.5.0：`welcome` に `room`・`version`・`reservations`・`reason`、`reservations`（予約の一覧が変わった・全部の部屋へ）。
   部屋ごとのメッセージはその部屋の人にだけ（ノート・ポスター・予約の一覧は全員）。
+  v0.6.0：クライアントから `play {game|null}`（ゲームの窓を開いた・閉じた。`PlayerView.playing` = 頭上の 🎮）・`stance {stance: 'vega'|null}`（ベガ立ち。`PlayerView.stance`。エモーションと同じ回数の枠）。
+  サーバから `welcome.rankings`（ゲームごとの総合の上位 5 人）・`ranking {game, top}`（上位が変わった。全部の部屋へ）。
 
 ## DESIGN にない部分で決めたこと（変えるならここ）
 
@@ -357,7 +388,38 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   DB は `Store.expireChat(before)`（`DELETE FROM chat WHERE at < ?` を直接。`deleteChat` の「お知らせの行を消すと元のお知らせも消す」は通さない）、予約部屋は `MemRoomData.expireChat`。
   消えた行ごとに `chat-delete` を送り、`unpinDeleted` でピン止めを外す。`welcome` の chat は `Arcade.recentChat(room)`（過ぎたものを除く）。クライアントは変えていない（chat-delete で消える。最大 1 分遅れ）。
 
+## 0.6.0 で決めたこと（ゲーム筐体と 2048・スコアランキング・ベガ立ち。DESIGN §16）
+
+- **経緯**：ユーザー「virtual_arcadeでゲームが出来るようにしてください。まず以下をアーケード筐体から遊べるようにしてください。スコアランキングを店内のポスターで掲示されるようにしてください。
+  https://github.com/gabrielecirulli/2048」。途中で「8 番の隣に 2048・16 番の隣はコラムス用に空ける・画面にゲームの画面っぽい絵」「(15,4) は Hextris 用に空ける」「エモーションにベガ立ちを追加してください。
+  腕を組んだマークが移動するまで頭の上に出続ける感じで」。仕様は DESIGN §16（16.6 に実装で決めたこと、16.7 にベガ立ち）。
+- **2048 の取り込み**：元のコミット `478b6ec` の JS・CSS・woff を `client/public/games/2048/` に写し、変えたのは乱数（`Math.random()` の 2 か所 → 種の mulberry32）・始め方（親の `va2048:start` 待ち）・
+  New Game / Try again / R（親に頼む）・Keep going の守り・親への知らせ（`js/va_bridge.js`）・保存しない・index.html の説明と出典・上下の余白だけ。変えた所はコードに「va:」、一覧は `CHANGES.md`。
+  元のファイルの行末は LF（元のリポジトリのまま）。
+- **点数の決め方**：サーバが種（`crypto` の 32 bit）と手の並び（`0〜3` と `K`）から盤をなぞり直す。クライアントの点数は使わない。速すぎる（手の数 × 40 ms より早い）・動かない手・終わった後の手・おかしな K は断る。
+  セッションは鍵ごと 1 つ・1 回だけ・24 時間・メモリだけ（再起動をまたいだゲームは記録できない）。点数 0 は記録しない。**自動で解くプログラムに遊ばせることは防げない**（既知の限界）。
+- **一致の確かめ方**：`server/test/game2048-vm.test.ts` が同梱した元の JS をそのまま `node:vm` で動かし、1 手ごとに TS の `Game2048` と盤・点数・終わりを比べる（300 ゲーム）。元の JS を変えたら必ず回す。
+- **置き場所**：筐体 (14,4)・立て看板 (17,4)。板（画面に平行）は筐体の 1 マス右に置くと筐体の画面を隠す（(15,4) で撮って確かめた）ので 2 マス右。
+  (15,4)・(15,5) は Hextris、(14,9)〜(16,9) はコラムス用に空けてある（叩き台の並び：Hextris の看板 (20,3)・コラムスの看板 (16,9)。テストで歩けることは確かめた）。
+- **絵**：ゲーム筐体は配信用より高い茶色の箱・金色の看板「2048」・大きな画面に 4×4 の盤（3 つの盤を順に）・箱の上に光る金色の看板。立て看板は元の 2048 の色の板に「2048 RANKING」と上位 5 人。
+- **窓**：PC は真ん中の窓（幅 600・iframe の高さ min(720px, 100vh − 190px)）、スマホは全画面のシート。開いたら iframe にフォーカス（親の矢印キーは iframe に取られるので店内の人は動かない）。
+  ［🏆 ランキング］はこの窓の上に重ねて開く（閉じても 2048 はそのまま）。iframe の中の Esc は親に知らせて閉じる。
+- **記録の結果**：ゲームオーバー・New Game のときは窓の上の帯「記録しました：12,345 点（自己ベスト更新！総合 3 位・今月 1 位）」、閉じる・退店・ページを離れるときは店内の下の帯（toast）。
+  順位は自己ベストでの順位（更新しなかったら「自己ベストは ○ 点・…」）。チャットの案内は自己ベストで総合 10 位以内、今月の自己ベストで今月 3 位以内。
+- **ランキング**：鍵ごとのベスト（同点は先、さらに同じなら id の小さい方）。SQLite の `ROW_NUMBER() OVER (PARTITION BY key_hash …)`。今月は日本時間の月の初め（`jstMonthStart`）から。
+  記録の名前はそのときの名前。来た人の記録の掃除（180 日）とは別でランキングは残る。行は増え続ける（消すのは管理者の 1 行ずつだけ）。
+- **ベガ立ち**：`PlayerView.stance`（メモリだけ）。付ける・外すは WebSocket の `stance`（トグルはクライアント）。歩く（goto）・座る（watch）・ゲーム（play）・部屋を移る・切断で外れる。
+  頭上の印は Canvas の絵（赤い帽子の上半身の腕組み）で、エモーション・吹き出しが出ている間はそちらを出す。人形も腕を組む（止まっているときだけ）。エモーションの欄の 9 個目（押している間は赤く沈んだ見た目）。
+- **確認の道具**：`scripts/dev/game-check.mjs`・`lib2048.mjs`、`scene.mjs` に 2048 の記録とベガ立ち（上の「画面の確認の手順」9）。
+
 ## 今後の課題
+
+- **v0.6.0 でユーザーに確かめること**：DESIGN の末尾の表（G1 置き場所・G2 占有しない・G3 途中でやめた点数も記録・G4 総合と今月・G5 チャットの案内・G6 不正の防ぎ方・G7 元の見た目・G8 ベガ立ち）、
+  ゲーム筐体と立て看板の絵、2048 の窓の大きさ（PC・スマホ）、ベガ立ちの印とポーズ。Hextris・コラムスを足すときは `GAMES` と floor.json に足し、iframe のゲームごとになぞり直しを書く。
+- 2048 は自動で解くプログラム（AI）に遊ばせることを防げない。ランキングの行は増え続ける（多くなったら古い・低い記録を間引く仕組みが要る）。再起動をまたいだゲームは記録できない。
+- keepalive の fetch は 64 KB までなので、とても長いゲーム（約 6 万手より長い）を閉じたときはふつうの fetch で送る（ページを離れたときは届かないことがある）。
+- `header-check` の quick（24 通り）で、幅 900 の管理者（主催者＋管理者・管理者）の上のバーの人数の札と名前のボタンが 1 ピクセル重なる NG が 4 つ出る。
+  **0.5.1 の画面に戻しても同じ NG が出る**（今回の変更によるものではない。0.5.1 のときは 104 通り NG 0 だったので、字体などこの PC の環境の違いと思われる。原因は未調査）。
 
 - **v0.5.0 でユーザーに確かめること**：DESIGN の末尾の表（Y1 見分け方・Y2 扉とカレンダーの置き場所・Y3 新しく開いたときは入店の画面・Y4 移るとピン止めが外れる・Y5 予約の案内・Y6 回数制限・Y7 PC の入り口・
   Y8 主催者の印・Y9 主催者が出した人・Y10 時計の場所）、
@@ -380,6 +442,18 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   DESIGN の末尾の表（M1 切り替えの幅・M2 既定の倍率と戻るまで・M3 横向きのチャット・M4 近くの配信・N1 ノートの置き場所・N2 ノートの案内・R1 要望箱の置き場所）、ノートの見た目（罫線・字）。
 - 筐体の箱は高いので、その奥の床は画面の上で箱と重なり、タップ・クリックでは筐体が開く（PC はキーボード、スマホは長押しで行ける）。
 - 店内の人数が多いと名前・吹き出しが重なる（重なりの調整はしていない）。
+
+## 確認したこと（v0.6.0）
+
+- `npm run build`・`npm test`（276 件：shared の game2048.test.ts 16 件・server の v06.test.ts 10 件・game2048-vm.test.ts 3 件を足した）・`npm run package`
+  （SHA-256 `f5c8d815c6ad46c24d9f75ec538286c5e985cef83126b09967f70bfdc4062b26`）が通る。展開した tar を `BASE_PATH=/arcade`・別ポート 8797・一時 DB で起動し、`/arcade/games/2048/index.html`（200 text/html）・
+  `js/va_bridge.js`・woff・`LICENSE.txt`（200）・`/arcade/api/meta`（版 0.6.0）・`/arcade/api/games/2048/ranking`（空の一覧）・知らないゲーム（404）・`/games/2048/index.html`（404）を確かめた。
+- `game-check.mjs`：展開した tar のサーバ（8797）で 49 通り NG 0（開発のサーバ 8796・scene ありでも 48 通り NG 0。Esc の確かめは後から足した）。
+- 一致のテスト：元の JS（vm）と TS のなぞり直しが、ランダムな手（動かない手を含む）の 300 ゲーム（2 万手以上・100 ゲーム以上が終わりまで）で 1 手ごとに一致。2048 まで遊んだ記録（K あり）も一致。
+- 画面（別ポート 8796・一時 DB・scene）：PC 1920×1080 の店内（筐体・立て看板・ベガ立ちの人・吹き出しと重なったとき）・筐体のホバーの札・2048 の窓・ゲームオーバーと結果の帯・ランキングの窓・
+  スマホ 390×844 の店内（ベガ立ちの印）・2048 の全画面のシート・ランキングのシート・エモーションの欄の 9 個目（押された見た目）を撮って見た。
+  途中で、立て看板を (15,4)（筐体の 1 マス右）に置くと板が筐体の画面を隠すのを見つけて (17,4) へ移した。
+- 既存の確認：`keyboard-check` NG 0（66 通り）。`header-check` の quick は 24 通り NG 4（幅 900 の管理者の上のバー。0.5.1 の画面でも同じ NG。上の「今後の課題」）。
 
 ## 確認したこと（v0.5.1）
 

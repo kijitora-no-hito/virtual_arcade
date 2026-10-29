@@ -3,7 +3,29 @@
 // v0.5.0：部屋が 2 つ（オープン部屋・予約部屋。DESIGN §14）。人・チャット・お知らせ・筐体・クレーンゲームは部屋ごと、
 // ノート・要望・ポスター・バッジは店全体で 1 つ。
 
+import crypto from 'node:crypto';
 import {
+  countMoves,
+  formatScore,
+  GAME_MAX_MOVES,
+  GAME_MOVE_MIN_MS,
+  GAME_NEAR,
+  GAME_SESSION_TTL_MS,
+  GAMES,
+  gameInfo,
+  gameSpots,
+  isGameId,
+  isRankingPeriod,
+  jstMonthStart,
+  MOVES_RE,
+  RANKING_ANNOUNCE,
+  RANKING_LIST_MAX,
+  RANKING_POSTER_TOP,
+  replay2048,
+  type GameFinishResponse,
+  type GameStartResponse,
+  type RankingEntry,
+  type RankingResponse,
   activeReservation,
   checkReservationPass,
   closedRoomText,
@@ -63,6 +85,8 @@ import {
   isBlank,
   isEmote,
   isLook,
+  isStance,
+  type Stance,
   isPassable,
   NOTICE_MAX,
   charLength,
@@ -83,7 +107,7 @@ import {
   type WelcomeMessage,
 } from '@va/shared';
 import type { Config } from './config';
-import type { PosterRow, ReservationRow, Store, UserRow } from './db';
+import type { GameScoreRow, PosterRow, ReservationRow, Store, UserRow } from './db';
 import { dbRoomData, MemRoomData, type RoomData } from './roomData';
 import { checkPassphrase, hashPassphrase, newPid } from './secret';
 
@@ -107,6 +131,18 @@ interface Online {
   watching: number | null;
   /** v0.5.0：いる部屋 */
   room: RoomId;
+  /** v0.6.0：遊んでいるゲーム（ゲームの窓を開いている間。頭上の 🎮） */
+  playing: string | null;
+  /** v0.6.0：ポーズ（ベガ立ち）。動く（歩く・座る・ゲームを始める・部屋を移る）と外れる。メモリだけ */
+  stance: Stance | null;
+}
+
+/** v0.6.0：始めたゲーム（鍵ごとに 1 つ。メモリだけ。1 回だけ記録に使える） */
+interface GameSession {
+  id: string;
+  game: string;
+  seed: number;
+  startedAt: number;
 }
 
 /** 部屋ごとの状態（v0.5.0。DESIGN §14）：チャット・お知らせ・筐体・クレーンゲームのケースと待ち時間 */
@@ -165,6 +201,8 @@ export class Arcade {
   private closeReason: string | null = null;
   /** 主催者に予約部屋から出された鍵（この予約の間は入れない。予約が終わると消える） */
   private roomBans = new Set<string>();
+  /** v0.6.0：始めたゲーム（鍵 → セッション。再起動で消える） */
+  private gameSessions = new Map<string, GameSession>();
 
   constructor(
     private store: Store,
@@ -220,6 +258,8 @@ export class Arcade {
       badges: this.badgesOf(p.keyHash),
       pinned: this.badges.get(p.keyHash)?.pinned ?? null,
       ...(p.room === 'reserved' && this.isRoomHost(p.keyHash) ? { host: true } : {}),
+      ...(p.playing ? { playing: p.playing } : {}),
+      ...(p.stance ? { stance: p.stance } : {}),
     };
   }
 
@@ -399,7 +439,7 @@ export class Arcade {
           : u.x !== null && u.y !== null && isPassable(FLOOR, u.x, u.y)
             ? { x: u.x, y: u.y }
             : FLOOR.spawn[Math.floor(Math.random() * FLOOR.spawn.length)];
-      p = { keyHash: k, pid: u.pid, name: u.name, look: u.look, path: [{ ...start }], startedAt: now, watching: null, room };
+      p = { keyHash: k, pid: u.pid, name: u.name, look: u.look, path: [{ ...start }], startedAt: now, watching: null, room, playing: null, stance: null };
       this.online.set(k, p);
       const hold = this.badges.get(k);
       if (hold) hold.offSince = null;
@@ -432,6 +472,7 @@ export class Arcade {
       notices: r.data.recentNotices(),
       posters: this.listPosters(),
       maxPlayers: this.cfg.maxPlayers,
+      rankings: Object.fromEntries(GAMES.map((g) => [g.id, this.rankingTop(g.id)])),
     };
     if (reason) msg.reason = reason;
     return msg;
@@ -461,6 +502,8 @@ export class Arcade {
     p.path = [doorFront()];
     p.startedAt = now;
     p.watching = null;
+    p.playing = null;
+    p.stance = null;
     this.hooks.broadcast({ type: 'join', player: this.playerView(p) }, to);
     if (notify) this.hooks.send(p.keyHash, this.welcome(p, reason));
   }
@@ -518,6 +561,21 @@ export class Arcade {
     p.startedAt = this.now();
     p.watching = null;
     this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: null }, p.room);
+    // 歩いたらゲームの 🎮・ベガ立ちは外す（v0.6.0）
+    if (p.playing || p.stance) {
+      p.playing = null;
+      p.stance = null;
+      this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
+    }
+  }
+
+  /** v0.6.0：ポーズ（ベガ立ち）を付ける・外す（null）。DESIGN §16.7 */
+  setStance(keyHash: string | null, raw: unknown): void {
+    const p = this.requireOnline(keyHash);
+    if (raw !== null && !isStance(raw)) throw new ArcadeError(400, 'そのポーズはありません', 'bad-input');
+    if (p.stance === raw) return;
+    p.stance = raw;
+    this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
   }
 
   emote(keyHash: string | null, emoji: unknown): Emote {
@@ -544,6 +602,11 @@ export class Arcade {
       p.watching = id;
     }
     this.hooks.broadcast({ type: 'move', pid: p.pid, path: p.path, startedAt: p.startedAt, watching: p.watching }, p.room);
+    // 座ったらベガ立ちは外す（v0.6.0）
+    if (p.watching !== null && p.stance) {
+      p.stance = null;
+      this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
+    }
   }
 
   // ---------------------------------------------------------------- チャット（部屋ごと）
@@ -825,6 +888,7 @@ export class Arcade {
     this.expirePosters();
     this.store.pruneReservations(now, RESERVATION_KEEP_MS, RESERVATION_MAX_ROWS);
     this.expireChat();
+    this.expireGameSessions();
     this.syncSlot();
   }
 
@@ -1314,6 +1378,146 @@ export class Arcade {
     const id = Number(rawId);
     if (!Number.isInteger(id) || !this.store.deleteRequest(id)) throw new ArcadeError(404, 'その要望はありません', 'not-found');
     this.notifyAdmins();
+  }
+
+  // ---------------------------------------------------------------- ゲーム筐体とランキング（v0.6.0。DESIGN §16。ランキングは店全体で 1 つ）
+
+  private requireGame(raw: unknown): string {
+    if (!isGameId(raw)) throw new ArcadeError(404, 'そのゲームはありません', 'not-found');
+    return raw;
+  }
+
+  /** ゲームの窓を開いた（game）・閉じた（null）。頭上の 🎮（WebSocket の play） */
+  play(keyHash: string | null, raw: unknown): void {
+    const p = this.requireOnline(keyHash);
+    const game = raw === null ? null : this.requireGame(raw);
+    if (p.playing === game && !(game && p.stance)) return;
+    p.playing = game;
+    // ゲームを始めたらベガ立ちは外す
+    if (game) p.stance = null;
+    this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
+  }
+
+  /** 始める：店内にいて、そのゲームの筐体に 2 マス以内。種とセッションを渡す（前のセッションは消える） */
+  startGame(keyHash: string | null, rawGame: unknown): GameStartResponse {
+    const p = this.requireOnline(keyHash);
+    const game = this.requireGame(rawGame);
+    const at = this.tileOf(p);
+    if (!gameSpots(FLOOR, game).some((s) => cabinetDistance(at, s) <= GAME_NEAR))
+      throw new ArcadeError(409, 'ゲームの筐体の近くまで行ってから遊んでください', 'too-far');
+    const sess: GameSession = {
+      id: crypto.randomBytes(16).toString('base64url'),
+      game,
+      // 種は推測できない乱数（テストでは cfg.rng で決める）
+      seed: this.cfg.rng ? Math.floor(this.cfg.rng() * 2 ** 32) >>> 0 : crypto.randomBytes(4).readUInt32LE(0),
+      startedAt: this.now(),
+    };
+    this.gameSessions.set(p.keyHash, sess);
+    return { session: sess.id, seed: sess.seed, best: this.store.bestScoreOf(game, p.keyHash) };
+  }
+
+  /** 24 時間たったセッションを消す */
+  expireGameSessions(): void {
+    const before = this.now() - GAME_SESSION_TTL_MS;
+    for (const [k, s] of this.gameSessions) if (s.startedAt < before) this.gameSessions.delete(k);
+  }
+
+  /**
+   * 記録する：サーバが種と手の並びから盤をなぞり直して点数を決める（クライアントの言う点数は使わない）。
+   * セッションは 1 回だけ。店内にいなくても（退店・ページを離れたとき）受け付ける。点数が 0 なら記録しない
+   */
+  finishGame(keyHash: string | null, rawGame: unknown, input: unknown): GameFinishResponse {
+    const k = this.requireKey(keyHash);
+    const game = this.requireGame(rawGame);
+    this.expireGameSessions();
+    const body = (input && typeof input === 'object' ? input : {}) as { session?: unknown; moves?: unknown };
+    const sess = this.gameSessions.get(k);
+    if (!sess || sess.id !== body.session || sess.game !== game)
+      throw new ArcadeError(409, 'このゲームは記録できませんでした（サーバが再起動したか、別の画面で新しいゲームを始めたため）', 'no-session');
+    this.gameSessions.delete(k);
+    const moves = body.moves;
+    if (typeof moves !== 'string' || moves.length > GAME_MAX_MOVES + 1 || !MOVES_RE.test(moves))
+      throw new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
+    const n = countMoves(moves);
+    const ms = this.now() - sess.startedAt;
+    if (n > GAME_MAX_MOVES) throw new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
+    if (ms < n * GAME_MOVE_MIN_MS) throw new ArcadeError(400, '手が速すぎるので、このゲームは記録しませんでした', 'too-fast');
+    const r = replay2048(sess.seed, moves);
+    if (!r.ok) throw new ArcadeError(400, '手順が正しくないので、このゲームは記録しませんでした', 'bad-moves');
+    const monthStart = jstMonthStart(this.now());
+    const oldBest = this.store.bestScoreOf(game, k);
+    const oldMonth = this.store.bestScoreOf(game, k, monthStart);
+    if (r.score <= 0)
+      return { recorded: false, score: 0, maxTile: r.maxTile, moves: n, best: oldBest, newBest: false, rank: this.ranksOf(game, k) };
+    const u = this.store.getUser(k);
+    const p = this.online.get(k);
+    const name = p?.name ?? u?.name ?? '？';
+    const before = JSON.stringify(this.rankingTop(game));
+    this.store.addGameScore({ game, at: this.now(), keyHash: k, pid: p?.pid ?? u?.pid ?? '', name, score: r.score, maxTile: r.maxTile, moves: n, ms });
+    const rank = this.ranksOf(game, k);
+    const newBest = r.score > oldBest;
+    // 自己ベストで総合 10 位以内・今月の自己ベストで今月 3 位以内なら、その人のいる部屋のチャットに案内
+    const parts: string[] = [];
+    if (newBest && rank.all !== null && rank.all <= RANKING_ANNOUNCE.all) parts.push(`総合 ${rank.all} 位`);
+    if (r.score > oldMonth && rank.month !== null && rank.month <= RANKING_ANNOUNCE.month) parts.push(`今月 ${rank.month} 位`);
+    if (parts.length)
+      this.addChat(this.roomOf(k), 'system', null, null, `🏆 ${name} さんが ${gameInfo(game)?.title ?? game} で ${formatScore(r.score)} 点！（${parts.join('・')}）`);
+    this.broadcastRanking(game, before);
+    return { recorded: true, score: r.score, maxTile: r.maxTile, moves: n, best: Math.max(oldBest, r.score), newBest, rank };
+  }
+
+  private entry(r: GameScoreRow, rank: number): RankingEntry {
+    return { id: r.id, rank, name: r.name, score: r.score, maxTile: r.maxTile, at: r.at };
+  }
+
+  /** 立て看板に描く上位（総合） */
+  rankingTop(game: string): RankingEntry[] {
+    return this.store
+      .gameBests(game)
+      .slice(0, RANKING_POSTER_TOP)
+      .map((r, i) => this.entry(r, i + 1));
+  }
+
+  /** 上位が変わっていたら全部の部屋へ（before = 変える前の上位の JSON） */
+  private broadcastRanking(game: string, before?: string): void {
+    const top = this.rankingTop(game);
+    if (before !== undefined && JSON.stringify(top) === before) return;
+    this.hooks.broadcast({ type: 'ranking', game, top });
+  }
+
+  /** その鍵の順位（自己ベストで。総合・今月） */
+  private ranksOf(game: string, k: string): { all: number | null; month: number | null } {
+    const at = (list: GameScoreRow[]) => {
+      const i = list.findIndex((r) => r.keyHash === k);
+      return i < 0 ? null : i + 1;
+    };
+    return { all: at(this.store.gameBests(game)), month: at(this.store.gameBests(game, jstMonthStart(this.now()))) };
+  }
+
+  /** ランキング（誰でも）：上位 50 人と、鍵があれば自分 */
+  ranking(keyHash: string | null, rawGame: unknown, rawPeriod: unknown): RankingResponse {
+    const game = this.requireGame(rawGame);
+    const period = isRankingPeriod(rawPeriod) ? rawPeriod : 'all';
+    const list = this.store.gameBests(game, period === 'month' ? jstMonthStart(this.now()) : 0);
+    const i = keyHash ? list.findIndex((r) => r.keyHash === keyHash) : -1;
+    return {
+      period,
+      entries: list.slice(0, RANKING_LIST_MAX).map((r, j) => this.entry(r, j + 1)),
+      me: i >= 0 ? this.entry(list[i], i + 1) : null,
+      total: list.length,
+    };
+  }
+
+  /** 記録を 1 行消す（サイトの管理者。不適切な名前など）。その人の次に良い記録が順位に出る */
+  deleteGameScore(keyHash: string | null, rawGame: unknown, rawId: unknown): void {
+    this.requireAdmin(keyHash);
+    const game = this.requireGame(rawGame);
+    const id = Number(rawId);
+    const row = Number.isInteger(id) ? this.store.getGameScore(id) : undefined;
+    if (!row || row.game !== game) throw new ArcadeError(404, 'その記録はありません', 'not-found');
+    const before = JSON.stringify(this.rankingTop(game));
+    this.store.deleteGameScore(id);
+    this.broadcastRanking(game, before);
   }
 }
 

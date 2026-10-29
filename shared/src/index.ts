@@ -11,3 +11,5 @@ export * from './crane';
 export * from './posters';
 export * from './notes';
 export * from './rooms';
+export * from './games';
+export * from './game2048';

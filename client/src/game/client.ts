@@ -12,6 +12,7 @@ import {
   type PlayerView,
   type PosterView,
   type Point,
+  type RankingEntry,
   type Profile,
   type ReservationView,
   type RoomId,
@@ -69,6 +70,10 @@ export class ArcadeClient {
   reservations: ReservationView[] = [];
   /** サーバの版がこのページの版と違う（再読み込みを勧める） */
   outdated = false;
+  /** v0.6.0：ゲームごとのランキングの上位（立て看板に描く。総合の上位 5 人） */
+  rankings: Record<string, RankingEntry[]> = {};
+  /** ランキングが変わった回数（開いているランキングの窓が読み直す合図） */
+  rankingSeq = 0;
 
   constructor(initialRoom: RoomId = 'open') {
     this.room = initialRoom;
@@ -192,6 +197,8 @@ export class ArcadeClient {
         this.chat = msg.chat;
         this.notices = msg.notices;
         this.posters = msg.posters ?? [];
+        this.rankings = msg.rankings ?? {};
+        this.rankingSeq++;
         this.connected = true;
         this.fatal = null;
         break;
@@ -248,6 +255,10 @@ export class ArcadeClient {
         break;
       case 'reservations':
         this.reservations = msg.reservations;
+        break;
+      case 'ranking':
+        this.rankings = { ...this.rankings, [msg.game]: msg.top };
+        this.rankingSeq++;
         break;
       case 'note':
       case 'note-delete':

@@ -37,6 +37,19 @@ export interface ReservationRow extends ReservationView {
   ownerKey: string;
 }
 
+/** ゲームの記録の行（v0.6.0。鍵のハッシュつき。クライアントには送らない） */
+export interface GameScoreRow {
+  id: number;
+  game: string;
+  at: number;
+  keyHash: string;
+  pid: string;
+  /** 記録を出したときの名前 */
+  name: string;
+  score: number;
+  maxTile: number;
+}
+
 export interface UserRow {
   key_hash: string;
   pid: string;
@@ -138,6 +151,20 @@ export class Store {
         text TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'new'
       );
+      CREATE TABLE IF NOT EXISTS game_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        key_hash TEXT NOT NULL,
+        pid TEXT NOT NULL,
+        name TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        max_tile INTEGER NOT NULL,
+        moves INTEGER NOT NULL,
+        ms INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS game_scores_score ON game_scores(game, score DESC);
+      CREATE INDEX IF NOT EXISTS game_scores_key ON game_scores(game, key_hash);
     `);
     // v0.3.0：発言したときのバッジ（前の版の DB には列が無い）
     const cols = (this.db.prepare(`PRAGMA table_info(chat)`).all() as Array<{ name: string }>).map((c) => c.name);
@@ -530,6 +557,66 @@ export class Store {
     this.db.prepare(`DELETE FROM reservations WHERE end_at < ?`).run(now - keepMs);
     const n = Number((this.db.prepare(`SELECT COUNT(*) AS n FROM reservations`).get() as { n: number }).n);
     if (n > maxRows) this.db.prepare(`DELETE FROM reservations WHERE id IN (SELECT id FROM reservations ORDER BY end_at ASC LIMIT ?)`).run(n - maxRows);
+  }
+
+  // ---------------------------------------------------------------- ゲームの記録（v0.6.0。DESIGN §16。新しい表だけ。前の版はこの表を読まない）
+
+  private toGameScore(r: Record<string, unknown>): GameScoreRow {
+    return {
+      id: Number(r.id),
+      game: String(r.game),
+      at: Number(r.at),
+      keyHash: String(r.key_hash),
+      pid: String(r.pid),
+      name: String(r.name),
+      score: Number(r.score),
+      maxTile: Number(r.max_tile),
+    };
+  }
+
+  addGameScore(r: Omit<GameScoreRow, 'id'> & { moves: number; ms: number }): number {
+    const res = this.db
+      .prepare(`INSERT INTO game_scores (game, at, key_hash, pid, name, score, max_tile, moves, ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(r.game, r.at, r.keyHash, r.pid, r.name, r.score, r.maxTile, r.moves, r.ms);
+    return Number(res.lastInsertRowid);
+  }
+
+  /**
+   * 鍵ごとのいちばん良い記録（since 以降の記録だけで）を、点数の高い順に。同じ点数は先に出した記録が上。
+   * 同じ人の記録は 1 行だけ（いちばん良いもの・同点なら先のもの）
+   */
+  gameBests(game: string, since = 0): GameScoreRow[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM (
+             SELECT *, ROW_NUMBER() OVER (PARTITION BY key_hash ORDER BY score DESC, at ASC, id ASC) AS rn
+             FROM game_scores WHERE game = ? AND at >= ?
+           ) WHERE rn = 1 ORDER BY score DESC, at ASC, id ASC`,
+        )
+        .all(game, since) as Array<Record<string, unknown>>
+    ).map((r) => this.toGameScore(r));
+  }
+
+  /** その鍵のいちばん良い点数（since 以降。無ければ 0） */
+  bestScoreOf(game: string, keyHash: string, since = 0): number {
+    const r = this.db.prepare(`SELECT MAX(score) AS s FROM game_scores WHERE game = ? AND key_hash = ? AND at >= ?`).get(game, keyHash, since) as
+      | { s: number | null }
+      | undefined;
+    return Number(r?.s ?? 0);
+  }
+
+  getGameScore(id: number): GameScoreRow | undefined {
+    const r = this.db.prepare(`SELECT * FROM game_scores WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+    return r ? this.toGameScore(r) : undefined;
+  }
+
+  deleteGameScore(id: number): boolean {
+    return Number(this.db.prepare(`DELETE FROM game_scores WHERE id = ?`).run(id).changes) > 0;
+  }
+
+  countGameScores(game: string): number {
+    return Number((this.db.prepare(`SELECT COUNT(*) AS n FROM game_scores WHERE game = ?`).get(game) as { n: number }).n);
   }
 
   countReservations(): number {

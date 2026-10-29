@@ -11,6 +11,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import WebSocket from 'ws';
+import { playRandom } from './lib2048.mjs';
 
 const [, , cmd, base, stateFile, ...rest] = process.argv;
 if (!cmd || !base || !stateFile) {
@@ -179,9 +180,25 @@ if (craneWant > 0) {
   console.log('バッジ', got);
 }
 
+// v0.6.0：2048 の記録（ランキングの立て看板に出る）。筐体 (14,4) の近くで遊んだことにする（手の数 × 40 ms より後に記録）
+if (process.env.SCENE_GAME !== '0') {
+  const play2048 = async (bot, n, pick) => {
+    const st = await call(bot.key, 'POST', '/api/games/2048/start', {});
+    const p = playRandom(st.seed, n, pick);
+    await sleep(p.moves.length * 45 + 300);
+    return call(bot.key, 'POST', '/api/games/2048/finish', { session: st.session, moves: p.moves }).catch((e) => console.log(e.message));
+  };
+  await Promise.all([walk(taiyo, 14, 5), walk(purple, 15, 5), walk(aoi, 13, 5), walk(boss, 16, 5), walk(pink, 14, 6)]);
+  const got = await Promise.all([play2048(taiyo, 260, 3), play2048(purple, 180, 5), play2048(aoi, 120, 7), play2048(boss, 90, 9), play2048(pink, 60, 11)]);
+  console.log('2048', got.map((r) => r?.score));
+}
+
 // 配置：あおいは筐体の列の奥（筐体の陰）、みどりは No.6 の前に座って視聴、ほかは通路
-await Promise.all([walk(aoi, 12, 3), walk(pink, 7, 12), walk(taiyo, 9, 7), walk(boss, 16, 11), walk(purple, 14, 6), walk(midori, 8, 6)]);
+await Promise.all([walk(aoi, 12, 3), walk(pink, 7, 12), walk(taiyo, 9, 7), walk(boss, 16, 11), walk(purple, 17, 7), walk(midori, 8, 6)]);
 send(midori, { type: 'watch', cabinet: 6 });
+// v0.6.0：ベガ立ち（てんちょう・むらさき。動くまで腕を組んで頭上に印。発言・エモーションの間はそちらが出る）
+send(boss, { type: 'stance', stance: 'vega' });
+send(purple, { type: 'stance', stance: 'vega' });
 
 const lines = [
   [taiyo, 'こんばんは！ 今日はにぎやかですね'],

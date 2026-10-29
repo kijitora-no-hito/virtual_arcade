@@ -5,6 +5,9 @@ import {
   embedUrlMini,
   EMOTES,
   FLOOR,
+  GAME_NEAR,
+  gameInfo,
+  gameSpot,
   isPassable,
   isStep,
   NOTE_NEAR,
@@ -46,6 +49,7 @@ import {
   type Camera,
   type Pt,
 } from '../game/camera';
+import { drawCrossedArms } from '../game/character';
 import { ArcadeClient } from '../game/client';
 import { fitView, fromScreen, inPoly, type View } from '../game/iso';
 import { cabinetFront, drawScene, drawStatic, type PlayerPose, type SceneHits, type SceneUi, type WorldLayer } from '../game/render';
@@ -56,9 +60,11 @@ import { BgmControls } from './BgmControls';
 import { CabinetDialog } from './CabinetDialog';
 import { ChatForm, ChatPanel } from './ChatPanel';
 import { CraneDialog } from './CraneDialog';
+import { Game2048Dialog } from './Game2048Dialog';
 import { ChatPeek, ChatSheet, MobileMenu } from './Mobile';
 import { NoteDialog } from './NoteDialog';
 import { PosterDialog } from './PosterDialog';
+import { RankingDialog } from './RankingDialog';
 import { RequestDialog } from './RequestDialog';
 import { ReservationDialog, RoomDoorDialog } from './ReservationDialog';
 import { RoomAdminDialog, RoomClock } from './RoomAdmin';
@@ -79,6 +85,9 @@ type Dialog =
   | { kind: 'reserve'; initial?: 'calendar' | 'list' }
   | { kind: 'door' }
   | { kind: 'roomAdmin' }
+  /** v0.6.0：ゲーム筐体（id = floor.json の game の番号）・ランキング */
+  | { kind: 'game'; id: number }
+  | { kind: 'ranking'; game: string }
   | null;
 
 type Hit =
@@ -90,21 +99,29 @@ type Hit =
   | { kind: 'request' }
   | { kind: 'door' }
   | { kind: 'calendar' }
+  | { kind: 'game'; id: number }
+  | { kind: 'ranking'; game: string }
   | { kind: 'floor'; x: number; y: number };
 
-/** 遠くからクリックして歩いている：着いたら開く窓（クレーンゲーム・ノート・要望箱・予約部屋の扉） */
-type Pending = { kind: 'crane'; id: number } | { kind: 'note' } | { kind: 'request' } | { kind: 'door' };
+/** 遠くからクリックして歩いている：着いたら開く窓（クレーンゲーム・ゲーム筐体・ノート・要望箱・予約部屋の扉） */
+type Pending = { kind: 'crane'; id: number } | { kind: 'game'; id: number } | { kind: 'note' } | { kind: 'request' } | { kind: 'door' };
 
 /** 置いてある物の場所と「近い」の距離 */
 const pendingSpot = (pend: Pending) =>
   pend.kind === 'crane'
     ? craneSpot(pend.id)
-    : pend.kind === 'note'
+    : pend.kind === 'game'
+      ? gameSpot(pend.id)
+      : pend.kind === 'note'
       ? noteSpots()[0]
       : pend.kind === 'door'
         ? doorSpots()[0]
         : requestBoxSpots()[0];
-const pendingNear = (pend: Pending) => (pend.kind === 'crane' ? CRANE_NEAR : pend.kind === 'door' ? ROOM_OBJECT_NEAR : NOTE_NEAR);
+const pendingNear = (pend: Pending) =>
+  pend.kind === 'crane' ? CRANE_NEAR : pend.kind === 'game' ? GAME_NEAR : pend.kind === 'door' ? ROOM_OBJECT_NEAR : NOTE_NEAR;
+/** 着いたら開く窓 */
+const pendingDialog = (pend: Pending): Dialog =>
+  pend.kind === 'crane' ? { kind: 'crane', id: pend.id } : pend.kind === 'game' ? { kind: 'game', id: pend.id } : { kind: pend.kind };
 
 /** 扉の上の札（予約部屋の今と次。v0.5.0） */
 /** PC の下のバーの操作の説明（狭い画面では省略・隠すので、全文を title にも入れる。v0.5.1） */
@@ -125,6 +142,22 @@ const doorSignText = (room: RoomId, list: ReservationView[], now: number): { sig
   if (!next) return { sign: '🔑 予約部屋（本日の予約なし）', open: false };
   const today = jstDayStart(now) === jstDayStart(next.startAt);
   return { sign: `🔑 予約部屋　${today ? '本日' : jstDate(next.startAt)} ${jstTime(next.startAt)}〜「${next.title}」`, open: false };
+};
+
+/** ベガ立ちのボタンの絵（頭上の印と同じ。v0.6.0） */
+const StanceIcon = () => {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = Math.round(32 * dpr);
+    c.height = Math.round(32 * dpr);
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawCrossedArms(ctx, 16, 17, 0.92, false);
+  }, []);
+  return <canvas ref={ref} className="stance-icon" style={{ width: 32, height: 32 }} aria-hidden="true" />;
 };
 
 /** スマホの指の操作（DESIGN §11.4） */
@@ -202,7 +235,9 @@ export const ArcadePage = ({
     hoverRequest: false,
     hoverDoor: false,
     hoverCalendar: false,
-    /** 遠くのクレーンゲーム・ノート・要望箱・扉をクリックした：着いたら窓を開く */
+    hoverGame: null as number | null,
+    hoverRanking: null as number | null,
+    /** 遠くのクレーンゲーム・ゲーム筐体・ノート・要望箱・扉をクリックした：着いたら窓を開く */
     pending: null as Pending | null,
     target: null as SceneUi['target'],
     keys: new Set<string>(),
@@ -401,6 +436,11 @@ export const ArcadePage = ({
         requestBox: () => (live.current.hits?.requestBoxes[0] ? center(live.current.hits.requestBoxes[0]) : null),
         door: () => (live.current.hits?.doors[0] ? center(live.current.hits.doors[0]) : null),
         calendar: () => (live.current.hits?.calendars[0] ? center(live.current.hits.calendars[0]) : null),
+        // v0.6.0：ゲーム筐体・ランキングの立て看板（i 番目。0 から）
+        game: (i = 0) => (live.current.hits?.games[i] ? center(live.current.hits.games[i].poly) : null),
+        ranking: (i = 0) => (live.current.hits?.rankings[i] ? center(live.current.hits.rankings[i].poly) : null),
+        rankings: () => client.rankings,
+        stance: () => client.me()?.stance ?? null,
         room: () => client.room,
         screen: () => (live.current.hits ? center(live.current.hits.screen) : null),
         bgm: () => bgm.debug(),
@@ -562,7 +602,7 @@ export const ArcadePage = ({
           const pos = positionAt(me.path, me.startedAt, client.serverNow());
           if (spot && pos.done && cabinetDistance({ x: Math.round(me.rx), y: Math.round(me.ry) }, spot) <= near) {
             L.pending = null;
-            setDialog((d) => d ?? (pend.kind === 'crane' ? { kind: 'crane', id: pend.id } : { kind: pend.kind }));
+            setDialog((d) => d ?? pendingDialog(pend));
           }
         }
         const hoverCfg =
@@ -587,6 +627,9 @@ export const ArcadePage = ({
           room: client.room,
           hoverDoor: L.hoverDoor,
           hoverCalendar: L.hoverCalendar,
+          hoverGame: L.hoverGame,
+          hoverRanking: L.hoverRanking,
+          rankings: client.rankings,
         };
         {
           const d = doorSignText(client.room, client.reservations, sNow);
@@ -668,6 +711,9 @@ export const ArcadePage = ({
     // 筐体とクレーンゲーム（手前のものが先。重ならない）
     for (const c of L.hits.cabinets) if (inPoly(c.poly, x, y)) return { kind: 'cabinet', id: c.id };
     for (const c of L.hits.cranes) if (inPoly(c.poly, x, y)) return { kind: 'crane', id: c.id };
+    // ゲーム筐体・ランキングの立て看板（v0.6.0）
+    for (const g of L.hits.games) if (inPoly(g.poly, x, y)) return { kind: 'game', id: g.id };
+    for (const g of L.hits.rankings) if (inPoly(g.poly, x, y)) return { kind: 'ranking', game: g.game };
     // ノートの机・要望箱（v0.4.0）
     if (L.hits.notes.some((p) => inPoly(p, x, y))) return { kind: 'note' };
     if (L.hits.requestBoxes.some((p) => inPoly(p, x, y))) return { kind: 'request' };
@@ -706,6 +752,8 @@ export const ArcadePage = ({
     L.hoverRequest = hit?.kind === 'request';
     L.hoverDoor = hit?.kind === 'door';
     L.hoverCalendar = hit?.kind === 'calendar';
+    L.hoverGame = hit?.kind === 'game' ? hit.id : null;
+    L.hoverRanking = hit?.kind === 'ranking' ? (live.current.hits?.rankings.find((r) => r.game === hit.game)?.id ?? null) : null;
     const want =
       hit && hit.kind !== 'floor' ? 'pointer' : hit?.kind === 'floor' && isPassable(FLOOR, hit.x, hit.y) ? 'crosshair' : 'default';
     if (want !== cursor) setCursor(want);
@@ -722,6 +770,8 @@ export const ArcadePage = ({
     L.hoverRequest = false;
     L.hoverDoor = false;
     L.hoverCalendar = false;
+    L.hoverGame = null;
+    L.hoverRanking = null;
   };
   /** 近ければ窓を開く。遠ければ前のマスまで歩いてから開く（クレーンゲーム DESIGN §8.1・ノート §12.1・要望箱 §13.1） */
   const openNear = (pend: Pending) => {
@@ -729,7 +779,7 @@ export const ArcadePage = ({
     const near = pendingNear(pend);
     const me = client.me();
     if (!spot || !me) return;
-    const open = () => setDialog(pend.kind === 'crane' ? { kind: 'crane', id: pend.id } : { kind: pend.kind });
+    const open = () => setDialog(pendingDialog(pend));
     if (cabinetDistance({ x: Math.round(me.rx), y: Math.round(me.ry) }, spot) <= near) {
       open();
       return;
@@ -751,7 +801,9 @@ export const ArcadePage = ({
     client.showToast(
       pend.kind === 'crane'
         ? 'クレーンゲームまで歩いています…'
-        : pend.kind === 'note'
+        : pend.kind === 'game'
+          ? `${gameInfo(gameSpot(pend.id)?.game ?? '')?.title ?? 'ゲーム'} の筐体まで歩いています…`
+          : pend.kind === 'note'
           ? 'ノートまで歩いています…'
           : pend.kind === 'door'
             ? '扉まで歩いています…'
@@ -761,9 +813,12 @@ export const ArcadePage = ({
   /** クリック・タップしたもの */
   const act = (hit: Hit | null) => {
     if (!hit) return;
-    if (hit.kind !== 'crane' && hit.kind !== 'note' && hit.kind !== 'request' && hit.kind !== 'door') live.current.pending = null;
+    if (hit.kind !== 'crane' && hit.kind !== 'game' && hit.kind !== 'note' && hit.kind !== 'request' && hit.kind !== 'door') live.current.pending = null;
     if (hit.kind === 'cabinet') setDialog({ kind: 'cabinet', id: hit.id });
     else if (hit.kind === 'crane') openNear({ kind: 'crane', id: hit.id });
+    else if (hit.kind === 'game') openNear({ kind: 'game', id: hit.id });
+    // ランキングは遠くても歩かずに開く
+    else if (hit.kind === 'ranking') setDialog({ kind: 'ranking', game: hit.game });
     else if (hit.kind === 'note') openNear({ kind: 'note' });
     else if (hit.kind === 'request') openNear({ kind: 'request' });
     else if (hit.kind === 'door') openNear({ kind: 'door' });
@@ -1061,11 +1116,25 @@ export const ArcadePage = ({
     </div>
   );
 
-  const emoteButtons = EMOTES.map((e) => (
-    <button key={e} className="emote" onClick={() => client.send({ type: 'emote', emoji: e })} title={e}>
-      {e}
-    </button>
-  ));
+  // v0.6.0：9 個目はベガ立ち（押すと動くまで腕を組む。もう一度で外す。DESIGN §16.7）
+  const vega = client.me()?.stance === 'vega';
+  const emoteButtons = [
+    ...EMOTES.map((e) => (
+      <button key={e} className="emote" onClick={() => client.send({ type: 'emote', emoji: e })} title={e}>
+        {e}
+      </button>
+    )),
+    <button
+      key="vega"
+      className={`emote stance ${vega ? 'on' : ''}`}
+      onClick={() => client.send({ type: 'stance', stance: vega ? null : 'vega' })}
+      title="ベガ立ち（動くまで腕を組む）"
+      aria-label="ベガ立ち（動くまで腕を組む）"
+      aria-pressed={vega}
+    >
+      <StanceIcon />
+    </button>,
+  ];
 
   const dialogs = (
     <>
@@ -1088,6 +1157,12 @@ export const ArcadePage = ({
         />
       )}
       {dialog?.kind === 'crane' && <CraneDialog client={client} id={dialog.id} meta={meta} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'game' && gameSpot(dialog.id) && (
+        <Game2048Dialog key={dialog.id} client={client} game={gameSpot(dialog.id)!.game} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === 'ranking' && (
+        <RankingDialog game={dialog.game} admin={!!you?.admin} seq={client.rankingSeq} onClose={() => setDialog(null)} />
+      )}
       {dialog?.kind === 'posters' && <PosterDialog client={client} meta={meta} initialId={dialog.id} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'note' && (
         <NoteDialog client={client} perView={mobile && !layout.landscape ? 1 : 2} mobile={mobile} onClose={() => setDialog(null)} />

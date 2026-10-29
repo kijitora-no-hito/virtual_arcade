@@ -19,13 +19,20 @@ export interface CabinetSpot {
   color: string;
 }
 
-/** note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13）、door = 予約部屋の扉・calendar = 予約カレンダー（v0.5.0。DESIGN §14） */
-export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar';
+/**
+ * note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13）、door = 予約部屋の扉・calendar = 予約カレンダー（v0.5.0。DESIGN §14）、
+ * game = 遊べるゲームの筐体・ranking = そのゲームのランキングの立て看板（v0.6.0。DESIGN §16）
+ */
+export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar' | 'game' | 'ranking';
 
 export interface Decor {
   type: DecorType;
   x: number;
   y: number;
+  /** v0.6.0：game / ranking のゲーム（shared の GAMES の id。例 '2048'） */
+  game?: string;
+  /** v0.6.0：game の画面の向き（ranking は省くと S） */
+  face?: Face;
 }
 
 /** 奥の壁の上の範囲（left = x = 0 の辺、right = y = 0 の辺。from..to はその辺に沿ったタイルの番号、to は含まない） */
@@ -53,7 +60,10 @@ export interface Floor extends FloorJson {
   passable: boolean[][];
 }
 
-const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar'];
+const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar', 'game', 'ranking'];
+
+/** game / ranking の game の形（中身が GAMES にあるかは games.ts で確かめる） */
+const GAME_ID_RE = /^[a-z0-9-]{1,20}$/;
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 
@@ -86,11 +96,22 @@ export const loadFloor = (j: FloorJson): Floor => {
   }
   for (const d of j.decor) {
     if (!DECOR_TYPES.includes(d.type)) throw new Error(`floor: 飾りの type ${d.type} が不正です`);
+    if (d.type === 'game' || d.type === 'ranking') {
+      if (typeof d.game !== 'string' || !GAME_ID_RE.test(d.game)) throw new Error(`floor: ${d.type} (${d.x},${d.y}) の game が不正です`);
+      if (d.type === 'game' ? d.face !== 'S' && d.face !== 'E' : d.face !== undefined && d.face !== 'S' && d.face !== 'E')
+        throw new Error(`floor: ${d.type} (${d.x},${d.y}) の face が不正です`);
+    }
     block(d.x, d.y, d.type);
   }
   for (const c of j.cabinets) {
     const f = frontTile(c);
     if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: 筐体 ${c.id} の前のマスが通れません`);
+  }
+  // v0.6.0：ゲームの筐体・ランキングの立て看板も前のマスが通れること
+  for (const d of j.decor) {
+    if (d.type !== 'game' && d.type !== 'ranking') continue;
+    const f = frontTile({ x: d.x, y: d.y, face: d.face ?? 'S' });
+    if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: ${d.type} (${d.x},${d.y}) の前のマスが通れません`);
   }
   if (!j.spawn.length) throw new Error('floor: spawn がありません');
   for (const s of j.spawn)

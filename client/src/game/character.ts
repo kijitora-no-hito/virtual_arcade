@@ -13,6 +13,8 @@ export interface CharOpts {
   me: boolean;
   /** 時刻（ms。輪の明滅） */
   t: number;
+  /** v0.6.0：ベガ立ち（胸の前で腕を組む。止まっているときだけ） */
+  crossed?: boolean;
 }
 
 const SKIN = '#ffe3c4';
@@ -27,6 +29,87 @@ const shade = (hex: string, k: number): string => {
 const rrect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, r);
+};
+
+/**
+ * v0.6.0：ベガ立ちの印（胸の前で組んだ腕。肌色の手と赤い袖。中心 (x, y)・幅は約 30 × size）。頭上とエモーションのボタンで使う
+ */
+export const drawCrossedArms = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, plate = true) => {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(size, size);
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = OUTLINE;
+  if (plate) {
+    // 下地（暗い丸い札・赤い縁）
+    ctx.fillStyle = 'rgba(20, 8, 40, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(-16, -17, 32, 33, 9);
+    ctx.fill();
+    ctx.strokeStyle = '#ff2d55';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = OUTLINE;
+  }
+  // 胴（赤い軍服。肩は張る）
+  ctx.fillStyle = '#b3122d';
+  ctx.beginPath();
+  ctx.moveTo(-13, -1);
+  ctx.quadraticCurveTo(-13, -5, -8, -5);
+  ctx.lineTo(8, -5);
+  ctx.quadraticCurveTo(13, -5, 13, -1);
+  ctx.lineTo(10, 14);
+  ctx.lineTo(-10, 14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // 頭と帽子（赤い帽子に金の印）
+  ctx.fillStyle = SKIN;
+  ctx.beginPath();
+  ctx.arc(0, -9, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#c8193a';
+  ctx.beginPath();
+  ctx.moveTo(-6.5, -10);
+  ctx.quadraticCurveTo(0, -18.5, 6.5, -10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#ffd34d';
+  ctx.beginPath();
+  ctx.arc(0, -12.5, 1.4, 0, Math.PI * 2);
+  ctx.fill();
+  // 胸の前で組んだ腕：奥の腕（右上から左下へ）と手前の腕（左上から右下へ）、両端に肌色の手
+  ctx.lineCap = 'round';
+  const arm = (x0: number, y0: number, x1: number, y1: number, color: string) => {
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 6.4;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4.2;
+    ctx.stroke();
+  };
+  arm(9, 2.5, -7, 7.5, '#7a0c1f');
+  arm(-9, 2.5, 7, 7.5, '#ff4d6d');
+  ctx.lineCap = 'butt';
+  ctx.lineWidth = 1.1;
+  ctx.strokeStyle = OUTLINE;
+  ctx.fillStyle = SKIN;
+  for (const [hx, hy] of [
+    [-8.5, 8],
+    [8.5, 8],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(hx, hy, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
 };
 
 /** 頭のてっぺんの高さ（足もとから。拡大率 1） */
@@ -86,13 +169,14 @@ export const drawCharacter = (ctx: CanvasRenderingContext2D, x: number, y: numbe
   const bob = o.walk === null ? 0 : Math.abs(Math.sin(o.walk)) * -1.2;
   ctx.translate(0, bob);
 
-  // 腕
+  // 腕（ベガ立ちは上の腕だけ。前で組んだ腕は胴の後に描く）
+  const crossed = !!o.crossed && !o.sitting && o.walk === null;
   const arm = o.walk === null ? 0 : Math.sin(o.walk) * 3;
   ctx.fillStyle = shade(body, -0.25);
-  rrect(ctx, -12, hip - 18 + arm * 0.3, 4.5, 13, 2.2);
+  rrect(ctx, -12, hip - 18 + arm * 0.3, 4.5, crossed ? 9 : 13, 2.2);
   ctx.fill();
   ctx.stroke();
-  rrect(ctx, 7.5, hip - 18 - arm * 0.3, 4.5, 13, 2.2);
+  rrect(ctx, 7.5, hip - 18 - arm * 0.3, 4.5, crossed ? 9 : 13, 2.2);
   ctx.fill();
   ctx.stroke();
 
@@ -104,6 +188,35 @@ export const drawCharacter = (ctx: CanvasRenderingContext2D, x: number, y: numbe
   rrect(ctx, -9, hip - 21, 18, 21, 6);
   ctx.fill();
   ctx.stroke();
+  if (crossed) {
+    // 胸の前で組んだ腕：2 本の前腕を斜めに重ね（奥は濃い色）、両端に手
+    ctx.lineCap = 'round';
+    const fore = (x0: number, y0: number, x1: number, y1: number, color: string) => {
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = 5.6;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3.4;
+      ctx.stroke();
+    };
+    fore(8.5, hip - 16, -6.5, hip - 11, shade(body, -0.45));
+    fore(-8.5, hip - 16, 6.5, hip - 11, shade(body, -0.2));
+    ctx.lineCap = 'butt';
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = OUTLINE;
+    ctx.fillStyle = SKIN;
+    ctx.beginPath();
+    ctx.arc(-8, hip - 10.5, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(8, hip - 10.5, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
 
   // 頭
   const hy = hip - 21 - 9;

@@ -39,7 +39,7 @@ import { CLIENT_DIST } from './paths';
 import { hashKey } from './secret';
 
 declare const __VA_VERSION__: string | undefined;
-export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.5.1';
+export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.6.0';
 
 export interface AppOptions {
   dbPath: string;
@@ -96,6 +96,9 @@ export const createServer = (opts: AppOptions) => {
     reserve: new RateLimiter(cfg.rates.reserve),
     passKey: new RateLimiter(cfg.rates.passKey),
     pass: new RateLimiter(cfg.rates.pass),
+    gameKey: new RateLimiter(cfg.rates.gameKey),
+    game: new RateLimiter(cfg.rates.game),
+    gameFinishKey: new RateLimiter(cfg.rates.gameFinishKey),
   };
   const lastChat = new Map<string, number>();
   const lastEmote = new Map<string, number>();
@@ -126,7 +129,10 @@ export const createServer = (opts: AppOptions) => {
     };
 
   const api = express.Router();
-  api.use(express.json({ limit: '16kb' }));
+  // JSON は 16 KB まで。ゲームの記録（手の並び。DESIGN §16.3）だけ 256 KB まで
+  const smallJson = express.json({ limit: '16kb' });
+  const bigJson = express.json({ limit: '256kb' });
+  api.use((req, res, next) => (req.method === 'POST' && /^\/games\/[^/]+\/finish$/.test(req.path) ? bigJson : smallJson)(req, res, next));
   api.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
@@ -456,6 +462,38 @@ export const createServer = (opts: AppOptions) => {
     }),
   );
 
+  // ---- ゲーム筐体とランキング（v0.6.0。DESIGN §16。点数はサーバが種と手の並びからなぞり直して決める）
+  api.post(
+    '/games/:game/start',
+    route((req, res) => {
+      const k = keyOf(req);
+      if (k) limit(limits.gameKey, k, 'ゲームの開始');
+      limit(limits.game, ipOf(req), 'ゲームの開始');
+      res.json(arcade.startGame(k, req.params.game));
+    }),
+  );
+  api.post(
+    '/games/:game/finish',
+    route((req, res) => {
+      const k = keyOf(req);
+      if (k) limit(limits.gameFinishKey, k, 'ゲームの記録');
+      res.json(arcade.finishGame(k, req.params.game, req.body));
+    }),
+  );
+  api.get(
+    '/games/:game/ranking',
+    route((req, res) => {
+      res.json(arcade.ranking(keyOf(req), req.params.game, req.query.period));
+    }),
+  );
+  api.delete(
+    '/admin/games/:game/scores/:id',
+    route((req, res) => {
+      arcade.deleteGameScore(keyOf(req), req.params.game, req.params.id);
+      res.json({ ok: true });
+    }),
+  );
+
   // ---- 管理者
   api.post(
     '/admin/login',
@@ -710,6 +748,20 @@ export const createServer = (opts: AppOptions) => {
         case 'watch':
           arcade.watch(k, m.cabinet === undefined ? null : m.cabinet);
           return;
+        case 'play':
+          arcade.play(k, m.game === undefined ? null : m.game);
+          return;
+        case 'stance': {
+          // v0.6.0：ベガ立ち（回数はエモーションと同じ枠で数える）
+          const t = now();
+          if (t - (lastEmote.get(k) ?? 0) < cfg.emoteMinIntervalMs || !limits.emoteKey.hit(k)) {
+            send(ws, { type: 'error', error: 'エモーションが多すぎます。少し待ってください', code: 'rate' });
+            return;
+          }
+          lastEmote.set(k, t);
+          arcade.setStance(k, m.stance === undefined ? null : m.stance);
+          return;
+        }
         default:
           return;
       }

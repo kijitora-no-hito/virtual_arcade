@@ -70,6 +70,10 @@ export interface Config {
     /** v0.5.0：予約部屋の合言葉の間違い（鍵ごと / IP ごと。合ったときは数えない） */
     passKey: RateRule;
     pass: RateRule;
+    /** v0.6.0：ゲームを始める（鍵ごと / IP ごと）・記録する（鍵ごと） */
+    gameKey: RateRule;
+    game: RateRule;
+    gameFinishKey: RateRule;
   };
   /** サーバの版（welcome で返す。クライアントの版と違えば再読み込みを頼む） */
   version?: string;
@@ -157,6 +161,9 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
       reserve: { limit: 12, windowMs: 60 * 60 * 1000 },
       passKey: { limit: 5, windowMs: 10 * 60 * 1000 },
       pass: { limit: 20, windowMs: 10 * 60 * 1000 },
+      gameKey: { limit: 20, windowMs: 60 * 1000 },
+      game: { limit: 60, windowMs: 60 * 1000 },
+      gameFinishKey: { limit: 20, windowMs: 60 * 1000 },
     },
     craneCooldownMs: env.CRANE_COOLDOWN_SEC ? int(env.CRANE_COOLDOWN_SEC, 20, 1, 3600) * 1000 : DEFAULT_CRANE_COOLDOWN_MS,
     craneOdds: {
