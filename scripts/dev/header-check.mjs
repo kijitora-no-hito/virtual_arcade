@@ -11,7 +11,7 @@
 //     例 node scripts/dev/header-check.mjs http://127.0.0.1:8797/arcade %TEMP%\va_hdr.json "合言葉" %TEMP% hdr_
 //   状態ファイルが無い（か予約が終わっている）ときは、API で人を 3 人（主催者・ふつうの人・管理者）作り、今の 30 分の枠から 5 時間の予約を入れて書く。
 //   サーバは別ポート・一時 DB で起動しておくこと（予約が入る）。撮る先のフォルダを渡すと、決まった組み合わせを PNG に撮る。
-//   CASES=quick で大きさを 1920・1366・900 に絞る。
+//   CASES=quick で大きさを 1920・1366・900 に絞る。COINS=99999 で上のバーにスロットのコイン（🪙）を出した形も見る（v0.7.0。表示だけ）。
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -230,6 +230,11 @@ for (const role of (process.env.ROLES ?? 'host,hostadmin,admin,visitor').split('
         if (m && m.room === room && m.counts.topbar > 0 && (room === 'open' || m.counts.roombar !== 0)) break;
       }
       await sleep(900); // 名前・バッジ・時計が入るのを待つ
+      // v0.7.0：COINS=99999 で上のバーの名前の後ろのコイン（🪙）を出して確かめる（表示だけ）
+      if (process.env.COINS) {
+        await ev(`window.__va?.fakeCoins?.(${Number(process.env.COINS)})`);
+        await sleep(300);
+      }
       m = await ev(MEASURE);
       const tag = `${sname}(${w}x${h}@${dpr}) ${ROLES[role]} ${room === 'open' ? 'オープン' : '予約'}`;
       const problems = [...(m?.problems ?? [])];

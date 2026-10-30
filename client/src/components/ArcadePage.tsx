@@ -479,6 +479,13 @@ export const ArcadePage = ({
           return s ? center(s.poly) : null;
         },
         coins: () => client.you?.coins ?? 0,
+        // 上のバーの見た目の確認用（header-check の COINS）：手元のコインの表示だけを変える（サーバの枚数は変わらない）
+        fakeCoins: (n: number) => {
+          if (client.you) {
+            client.you = { ...client.you, coins: n };
+            client.notify();
+          }
+        },
         // 壁のランキングのポスターにいま描いている上位（[名前, 点数]。ランキングが変わるとその場で描き直すことの確認用）
         rankingFace: (game: string) => rankingFaceOf(game),
         // v0.6.0：観戦。遊んでいる人の頭上の名札（pid か、無ければいちばん手前）の位置・その人の pid と見ている人数

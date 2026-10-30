@@ -195,8 +195,9 @@ check(!!(await pt(`__va.ranking('2048')`)), 'ランキングのポスターの�
   const cab = await pt(`__va.game('2048')`);
   check(rp.every((r) => Math.hypot(r.x - cab.x, r.y - cab.y) > 300), 'ポスターはゲーム筐体のまわりには無い');
   const freed = [];
-  for (const [x, y] of [[17, 4], [16, 9], [20, 3]]) freed.push(await ev(`__va.passable(${x}, ${y})`));
-  check(freed.every(Boolean), '立て看板のあったマス (17,4)・(16,9)・(20,3) は通れる', JSON.stringify(freed));
+  // (17,4) は v0.7.0 からスロット台
+  for (const [x, y] of [[16, 9], [20, 3]]) freed.push(await ev(`__va.passable(${x}, ${y})`));
+  check(freed.every(Boolean), '立て看板のあったマス (16,9)・(20,3) は通れる（(17,4) は v0.7.0 からスロット台）', JSON.stringify(freed));
   // ホバー：札とポスターの縁が光る（hoverRanking）。カーソルは指の形
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rp[1].x, y: rp[1].y });
   check(await waitFor(`[...document.querySelectorAll('canvas')].some((c) => c.style.cursor === 'pointer')`, 2000), 'ポスターにカーソルを置くと指の形');
