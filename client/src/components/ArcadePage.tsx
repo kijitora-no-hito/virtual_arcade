@@ -1214,6 +1214,7 @@ export const ArcadePage = ({
           client={client}
           id={dialog.id}
           ttlHours={Math.round((meta?.cabinetTtlMs ?? 6 * 3600000) / 3600000)}
+          maxPerUser={meta?.cabinetMaxPerUser ?? 4}
           onClose={() => setDialog(null)}
           onWatch={startWatch}
         />

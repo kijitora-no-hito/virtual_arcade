@@ -16,6 +16,7 @@ import {
   loadFloor,
   normalizeForNg,
   ownedBy,
+  ownedAll,
   parseYouTubeUrl,
   pathLength,
   positionAt,
@@ -242,10 +243,20 @@ describe('筐体の持ち主の決まり', () => {
     expect(ownedBy(list, 'A', now, TTL)?.id).toBe(1);
   });
 
-  it('同時に持てるのは 1 台・ほかの人の筐体は使えない', () => {
+  it('上限まで持てる（既定 4 台。上限 1 なら 2 台目は too-many）・ほかの人の筐体は使えない', () => {
     const list = cabs();
     list[0] = claimCabinet(list[0], alice, now, TTL);
-    expect(claimError(list, 2, 'A', now, TTL)).toBe('already-own');
+    expect(claimError(list, 2, 'A', now, TTL, 1)).toBe('too-many');
+    expect(claimError(list, 2, 'A', now, TTL)).toBeNull();
+    const five = [1, 2, 3, 4, 5].map(emptyCabinet).map((c, i) => (i < 4 ? claimCabinet(c, alice, now, TTL) : c));
+    expect(ownedAll(five, 'A', now, TTL).map((c) => c.id)).toEqual([1, 2, 3, 4]);
+    expect(claimError(five, 5, 'A', now, TTL)).toBe('too-many');
+    expect(claimError(five, 3, 'A', now, TTL)).toBeNull(); // 持っている台の更新はよい
+    expect(claimError(five, 5, 'A', now, TTL, 5)).toBeNull();
+    // 時間切れの台は数えない
+    expect(claimError(five, 5, 'A', now + TTL, TTL)).toBeNull();
+    // 管理者が持ち主なしで設定した台（ownerId なし）は数えない
+    expect(claimError([...five.slice(0, 3), { ...emptyCabinet(4), videoId: 'x' }, emptyCabinet(5)], 5, 'A', now, TTL)).toBeNull();
     expect(claimError(list, 1, 'B', now, TTL)).toBe('taken');
     expect(claimError(list, 1, 'A', now, TTL)).toBeNull(); // 自分の筐体はもう一度使える（更新）
     expect(claimError(list, 9, 'A', now, TTL)).toBe('not-found');

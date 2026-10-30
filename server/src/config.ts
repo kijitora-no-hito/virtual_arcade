@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   DEFAULT_BADGE_KEEP_MS,
   DEFAULT_CABINET_TTL_MS,
+  DEFAULT_CABINET_MAX_PER_USER,
   DEFAULT_CRANE_COOLDOWN_MS,
   DEFAULT_CRANE_ODDS,
   DEFAULT_POSTER_MAX_PER_USER,
@@ -31,6 +32,8 @@ export interface Config {
   maxPlayers: number;
   /** 筐体が最後の更新から自動で空きに戻るまで */
   cabinetTtlMs: number;
+  /** v0.7.0：1 人が同時に持てる（配信を登録できる）筐体の数（部屋ごと。CABINET_MAX_PER_USER、1〜16） */
+  cabinetMaxPerUser: number;
   /** 管理者の合言葉のハッシュ（scrypt:<塩>:<ハッシュ>。npm run hash-admin で作る）。null = 管理者なし */
   adminPassHash: string | null;
   /** 管理者になってから続く時間（同じブラウザなら再読み込みしても管理者のまま） */
@@ -162,6 +165,7 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
     cabinetTtlMs: env.CABINET_TTL_HOURS
       ? int(env.CABINET_TTL_HOURS, 6, 1, 24 * 30) * 60 * 60 * 1000
       : DEFAULT_CABINET_TTL_MS,
+    cabinetMaxPerUser: int(env.CABINET_MAX_PER_USER, DEFAULT_CABINET_MAX_PER_USER, 1, 16),
     adminPassHash: h || null,
     adminTtlMs: int(env.ADMIN_TTL_HOURS, 12, 1, 24 * 30) * 60 * 60 * 1000,
     maxConnections: int(env.MAX_CONNECTIONS, 300, 10, 100000),

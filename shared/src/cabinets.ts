@@ -1,4 +1,4 @@
-// 筐体の持ち主の決まり（空いている筐体を「使う」と持ち主になる・1 人 1 台・最後の更新から一定時間で空きに戻る）と、
+// 筐体の持ち主の決まり（空いている筐体を「使う」と持ち主になる・1 人 4 台まで（v0.7.0。CABINET_MAX_PER_USER）・最後の更新から一定時間で空きに戻る）と、
 // 設定の検証（YouTube の URL・宣伝の文字）。サーバが使う純粋関数。
 
 import { charLength, hasNgWord, tidy } from './text';
@@ -20,6 +20,9 @@ export const PROMO_LABEL: Record<PromoField, string> = {
   playerName: 'プレイヤー名',
   note: '備考',
 };
+
+/** 既定：1 人が同時に持てる（配信を登録できる）筐体の数（v0.7.0 ユーザー指定「一人が登録できる配信を4つまでに増やします」。部屋ごとに数える） */
+export const DEFAULT_CABINET_MAX_PER_USER = 4;
 
 /** 既定：最後の更新から 6 時間で空きに戻る */
 export const DEFAULT_CABINET_TTL_MS = 6 * 60 * 60 * 1000;
@@ -72,7 +75,12 @@ export const isFree = (c: CabinetRecord, now: number, ttlMs: number): boolean =>
 export const ownedBy = (cabs: CabinetRecord[], ownerId: string, now: number, ttlMs: number): CabinetRecord | undefined =>
   cabs.find((c) => c.ownerId === ownerId && !isExpired(c, now, ttlMs));
 
-export type ClaimError = 'not-found' | 'taken' | 'already-own';
+/** ownerId が今持っている筐体の全部（時間切れは除く。管理者が持ち主なしで設定した筐体は数えない） */
+export const ownedAll = (cabs: CabinetRecord[], ownerId: string, now: number, ttlMs: number): CabinetRecord[] =>
+  cabs.filter((c) => c.ownerId === ownerId && !isExpired(c, now, ttlMs));
+
+/** too-many = もう上限（maxPerUser 台）まで持っている（v0.6 までの 1 人 1 台のときは already-own） */
+export type ClaimError = 'not-found' | 'taken' | 'too-many';
 
 /** 「使う」ができるか。できなければ理由 */
 export const claimError = (
@@ -81,13 +89,14 @@ export const claimError = (
   ownerId: string,
   now: number,
   ttlMs: number,
+  maxPerUser = DEFAULT_CABINET_MAX_PER_USER,
 ): ClaimError | null => {
   const c = cabs.find((x) => x.id === id);
   if (!c) return 'not-found';
-  const mine = ownedBy(cabs, ownerId, now, ttlMs);
-  if (mine && mine.id === id) return null; // 自分の筐体をもう一度「使う」= 更新
+  const mine = ownedAll(cabs, ownerId, now, ttlMs);
+  if (mine.some((m) => m.id === id)) return null; // 自分の筐体をもう一度「使う」= 更新
   if (!isFree(c, now, ttlMs)) return 'taken';
-  if (mine) return 'already-own';
+  if (mine.length >= Math.max(1, maxPerUser)) return 'too-many';
   return null;
 };
 

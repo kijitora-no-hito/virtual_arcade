@@ -35,10 +35,13 @@ export const CabinetDialog = ({
   onClose,
   onWatch,
   ttlHours,
+  maxPerUser,
 }: {
   client: ArcadeClient;
   id: number;
   ttlHours: number;
+  /** v0.7.0：1 人が同時に持てる筐体の数（meta の cabinetMaxPerUser） */
+  maxPerUser: number;
   onClose: () => void;
   onWatch: (id: number) => void;
 }) => {
@@ -52,7 +55,11 @@ export const CabinetDialog = ({
   const spot = FLOOR.cabinets.find((x) => x.id === id)!;
   const myTile = me ? { x: Math.round(me.rx), y: Math.round(me.ry) } : null;
   const near = !!myTile && cabinetDistance(myTile, spot) <= 2;
-  const myOther = [...client.cabinets.values()].find((x) => x.ownerPid && x.ownerPid === you?.pid && x.id !== id);
+  // v0.7.0：1 人 maxPerUser 台まで（この部屋の、時間切れでない自分の筐体）
+  const myCabs = [...client.cabinets.values()].filter(
+    (x) => x.ownerPid && x.ownerPid === you?.pid && x.id !== id && (x.expiresAt === null || x.expiresAt > client.serverNow()),
+  );
+  const full = myCabs.length >= maxPerUser;
 
   const [form, setForm] = useState<Record<'url' | PromoField, string>>({ url: '', eventName: '', gameName: '', playerName: '', note: '' });
   const [editing, setEditing] = useState(false);
@@ -152,9 +159,14 @@ export const CabinetDialog = ({
           <div className="cab-claim">
             <p>
               空いている筐体を「使う」と持ち主になり、YouTube の配信 URL と宣伝（イベント名・ゲーム名・プレイヤー名・備考）を出せます。
-              同時に使えるのは 1 台。最後の更新から {ttlHours} 時間で自動で空きに戻ります。
+              配信を登録できるのは 1 人 {maxPerUser} 台まで。最後の更新から {ttlHours} 時間で自動で空きに戻ります。
             </p>
-            {myOther && <p className="warn small">いまは No.{myOther.id} を使っています。先にそちらを空けてください。</p>}
+            {myCabs.length > 0 && (
+              <p className={full ? 'warn small' : 'muted small'}>
+                いまは {myCabs.map((x) => `No.${x.id}`).join('・')} を使っています（{myCabs.length} / {maxPerUser} 台）。
+                {full && `配信を登録できるのは 1 人 ${maxPerUser} 台までです。先にどれかを空けてください。`}
+              </p>
+            )}
             {!near && <p className="warn small">筐体の近く（2 マス以内）まで歩いてから使えます。</p>}
             <div className="cab-actions">
               {!near && (
@@ -162,7 +174,7 @@ export const CabinetDialog = ({
                   前まで歩く
                 </button>
               )}
-              <button className="primary big" disabled={busy || !near || !!myOther} onClick={claim}>
+              <button className="primary big" disabled={busy || !near || full} onClick={claim}>
                 この筐体を使う
               </button>
             </div>

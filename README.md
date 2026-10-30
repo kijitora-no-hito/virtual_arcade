@@ -52,7 +52,7 @@ npm start          # http://127.0.0.1:8791/
   `POSTER_MAX_PER_USER`（1 人が同時に貼れる枚数。2）・`POSTER_MAX_TOTAL`（店全体の枚数。40）。
   v0.4.0 から：`NOTE_MAX_TOTAL`（ノートに残す件数。2000）・`REQUEST_MAX_TOTAL`（要望を残す件数。1000）。
   v0.5.1 から：`CHAT_TTL_HOURS`（チャットの発言を残す時間。24。過ぎた発言は DB からも開いている画面からも消える）。
-  v0.7.0 から：`SLOT_BIG_ODDS`・`SLOT_REG_ODDS`（スロットの BIG・REG の確率 1/n。256・400。画面の確認用で、本番では設定しない）。
+  v0.7.0 から：`CABINET_MAX_PER_USER`（1 人が配信を登録できる筐体の数。4。1〜16）・`SLOT_BIG_ODDS`・`SLOT_REG_ODDS`（スロットの BIG・REG の確率 1/n。256・400。画面の確認用で、本番では設定しない）。
   `BASE_PATH` はビルドし直さずに変えられます（サーバが index.html に `<base href>` を差し込む）。
 - PowerShell では `$env:BASE_PATH='/arcade'; $env:PORT='8798'; npm start` のように渡す（Git Bash で `BASE_PATH=/arcade` と書くと Windows のパスに書き換えられて起動しない）。
 - 管理者の合言葉: `npm run hash-admin`（合言葉を聞かれる。画面には出ない）で `scrypt:…` の 1 行ができるので、それを `ADMIN_PASS_HASH` に入れて起動する。
@@ -82,7 +82,7 @@ systemd は [deploy/virtual-arcade.service](deploy/virtual-arcade.service)、Apa
 4. **エモーション**：下のボタン（👍 😂 😮 👏 ❤️ 👋 🎉 🔥）で、頭上に大きな絵文字が出ます。
    9 個目の腕組みのボタンは**ベガ立ち**（v0.6.0）：胸の前で腕を組んで立ち、頭上に腕組みの印が出ます。歩く・座る・ゲームを始めるまで続き、もう一度押すと外れます。
 5. **筐体を使う**：空いている筐体の近く（2 マス以内）まで行ってクリック →［この筐体を使う］で持ち主になり、YouTube の URL
-   （`youtube.com/watch?v=…`・`youtu.be/…`・`youtube.com/live/…`）と宣伝を設定できます。同時に使えるのは 1 台。
+   （`youtube.com/watch?v=…`・`youtu.be/…`・`youtube.com/live/…`）と宣伝を設定できます。配信を登録できるのは 1 人 4 台まで（v0.7.0。サーバの `CABINET_MAX_PER_USER` で変えられます。部屋ごとに数えます）。
    持ち主はいつでも変更・［空ける］ができ、最後の更新から 6 時間で自動で空きに戻ります。
 6. **配信を見る**：配信中の筐体は画面にサムネイルと「LIVE」の札が出て光ります。近づくかカーソルを置くと宣伝の全文が出て、
    いちばん近い配信中の筐体の 2 マス以内に入ると、その筐体の上に小さな埋め込み（音なし）が流れます。

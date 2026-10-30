@@ -19,6 +19,7 @@
   台は (17,4)・(18,4)・(19,4) の 3 台（自販機の手前）。内部抽選はサーバ、止まる位置はクライアントとサーバの同じ `stopReel`（`shared/src/slot.ts`。最大 4 コマのすべり・当たっていない役は蹴る）。
   機械割は完璧な目押しで理論値 102.48%・でたらめに押して約 87%（100 万回 × 3 のシミュレーション。DESIGN §17.3）。コインはバッジと同じくメモリだけ、預けると DB の `coin_bank`（4 文字のキー・1 回だけ・180 日）。
   DB は新しい表 `coin_bank` を足すだけ（0.6.x へそのまま戻せる）。下の「0.7.0 で決めたこと」・「確認したこと（v0.7.0）」。
+  同じ 0.7.0 で、ユーザー「一人が登録できる配信を4つまでに増やします」→ 配信用の筐体は **1 人 4 台まで**（`CABINET_MAX_PER_USER`。部屋ごと。DESIGN §18。別のコミット）。
   **v0.6.0**（2026-10-30。**未公開・ユーザー未確認**。DESIGN の末尾の表 G1〜G8 が叩き台）：ユーザー「virtual_arcadeでゲームが出来るようにしてください。まず以下をアーケード筐体から遊べるようにしてください。
   スコアランキングを店内のポスターで掲示されるようにしてください。https://github.com/gabrielecirulli/2048」・途中で「エモーションにベガ立ちを追加してください」。
   元の 2048（MIT）を `client/public/games/2048/` に同梱して iframe で動かし、サーバが種と手順をなぞり直して点数を決める（`shared/src/game2048.ts`。元の JS と一致することを vm で確かめるテストあり）。
@@ -138,7 +139,7 @@
 - `path.ts` `findPath`（A*。8 方向・角をすり抜けない・200 マスまで）・`isStep` / `isValidPath`・`positionAt`（経路と出発時刻から今の位置。サーバとクライアントで同じ式）・`currentTile`（区間の半分を過ぎたら次のマス）・`WALK_SPEED` = 4 マス/秒
 - `youtube.ts` `parseYouTubeUrl`（3 つの形だけ。ID は 11 文字）・`canonicalYouTubeUrl`・`thumbnailUrls`・`embedUrlMini` / `embedUrlFull`（youtube-nocookie.com）
 - `text.ts` `stripControl` / `tidy` / `charLength` / `ellipsis`・`normalizeForNg`（NFKC・小文字・カタカナ→ひらがな・空白と記号を除く）・`hasNgWord`
-- `cabinets.ts` `CabinetRecord`・`PROMO_LIMITS`（イベント名 30・ゲーム名 30・プレイヤー名 20・備考 120）・`claimError`（1 人 1 台・時間切れは空き扱い）・`claimCabinet` / `releaseCabinet` / `expireCabinets`・`validateCabinetInput`（URL・文字数・NG 語）
+- `cabinets.ts` `CabinetRecord`・`PROMO_LIMITS`（イベント名 30・ゲーム名 30・プレイヤー名 20・備考 120）・`claimError`（1 人 `maxPerUser` 台まで（v0.7.0 から既定 4。`DEFAULT_CABINET_MAX_PER_USER`）・時間切れは空き扱い。上限は `too-many`）・`ownedAll`・`claimCabinet` / `releaseCabinet` / `expireCabinets`・`validateCabinetInput`（URL・文字数・NG 語）
 - `looks.ts` 体の色 8 種・帽子や髪 6 種・`checkName`（1〜20 文字・NG 語）・`EMOTES`（8 個）・吹き出し・チャットの定数
 - `protocol.ts` REST の応答と WebSocket のメッセージの型（`MetaResponse.bgm` = 店内の BGM の曲の一覧。v0.3.0 で `PlayerView.badges` / `pinned`・`ChatMessage.badges`・
   `CraneStateResponse` / `CranePlayResponse`・`posters` / `bye` のメッセージ）
@@ -261,7 +262,7 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
 
 - `GET /meta`（版・上限・人数・筐体の期限・管理者の有無・文字数・店内の BGM の曲の一覧 `bgm`）/ `GET /me`（前に入ったことがあれば `profile`。止められていれば `bannedUntil`）
 - `POST /enter {name, look}`（初めて・名前と見た目の変更。満員なら 503 `full`、止められていれば 403 `banned`）
-- `GET /cabinets` / `POST /cabinets/:id/claim`（店内にいて 2 マス以内。`too-far` / `taken` / `already-own`）/
+- `GET /cabinets` / `POST /cabinets/:id/claim`（店内にいて 2 マス以内。`too-far` / `taken` / `too-many`（v0.7.0 から 1 人 `CABINET_MAX_PER_USER` 台まで・既定 4。v0.6 までは 1 台で `already-own`））/
   `PATCH /cabinets/:id {url, eventName, gameName, playerName, note}`（持ち主か管理者。`bad-url` / `too-long` / `ng`）/ `POST /cabinets/:id/release`（持ち主か管理者）
 - `POST /chat {text}`（店内にいる人。200 文字・NG 語・1 秒に 1 回・15 秒に 6 回・IP ごと 1 分に 20 回）/
   `POST /chat/:id/pin {pinned}`（自分の発言を 1 つピン止め。`false` で外す。鍵ごとに 1 分 10 回）
@@ -432,7 +433,7 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
 - **時間**：枠は UTC の 30 分の倍数（JST は +9 時間で 30 分の倍数なので、そのまま JST の 00 分・30 分になる）。今の枠（始まっている 30 分）からは予約できる。
   終わりは `syncSlot`（5 秒ごと・入る前・予約を作る・取り消すとき）で当てるので、最大 5 秒ほど遅れて戻る。案内は 10 分前・5 分前を 1 回ずつ（予約が 5 分を切ってから作られたら残りの分数で 1 回）。
 - **予約部屋の中身**：チャット・お知らせ・筐体・クレーンゲームはメモリだけ。閉じるときは先に全員をオープン部屋へ戻してから消す（`closeReservedRoom`）。続けての予約でも、いったん全員戻して消してから次を開く。
-  筐体の「1 人 1 台」とクレーンゲームの待ち時間は部屋ごと（オープン部屋と予約部屋で 1 台ずつ持てる）。
+  筐体の「1 人 1 台」（v0.7.0 から 1 人 4 台まで）とクレーンゲームの待ち時間は部屋ごと（オープン部屋と予約部屋でそれぞれ持てる）。
 - **位置**：DB の最後の位置（`users.x/y`）はオープン部屋のものだけ。部屋を移ると扉の前のマス（`doorFront` = (2,1)）に立つ。
 - **入店の画面**：前に来た人も、新しく開いたときは入店の画面（名前と見た目は入っている。［入店する］で今までどおりオープン部屋）。再読み込み（sessionStorage `va:room` がある）ときだけ自動で入る。
   入店の画面で予約する・予約部屋に入るときは、先にその画面の名前と見た目で `/api/enter` してから（BGM を鳴らせるようにする `bgm.unlock()` もこの操作の中）。
@@ -522,6 +523,8 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   期限は 180 日（sweep）。間違いは合言葉と同じ数え方（`blocked` を先に見て、`bad-code` のときだけ数える）。形の違う入力は数えない。手元と合わせて 99,999 枚を超える引き出しは断る（キーは残る）。
 - **退店**：手元にコインがあれば `window.confirm` の代わりに確認の窓（［預けてから退店］でキーを出してから［メモしたので退店する］）。コインが無ければ今までどおり。
 - **確認の道具**：`SLOT_BIG_ODDS`・`SLOT_REG_ODDS`（BIG・REG の 1/n）でボーナスを出やすくできる（本番では設定しない）。
+- **筐体は 1 人 4 台まで**（ユーザー「一人が登録できる配信を4つまでに増やします」。DESIGN §18）：`claimError` に上限（`maxPerUser`）を足し、上限は `too-many`（`already-own` はやめた）。
+  `CABINET_MAX_PER_USER`（1〜16、既定 4）・`/api/meta` の `cabinetMaxPerUser`。筐体の窓は自分の台の一覧（n / 4 台）と、上限なら［使う］を押せない。部屋ごと・時間切れと管理者の台は数えない。
 
 ## 今後の課題
 

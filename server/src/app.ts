@@ -177,6 +177,7 @@ export const createServer = (opts: AppOptions) => {
           limits: { ...RESERVATION_LIMITS },
         },
         cabinetTtlMs: cfg.cabinetTtlMs,
+        cabinetMaxPerUser: cfg.cabinetMaxPerUser,
         adminEnabled: arcade.adminEnabled(),
         limits: { name: NAME_MAX, chat: CHAT_MAX, notice: NOTICE_MAX, promo: { ...PROMO_LIMITS } },
         bgm: listBgm(cfg.bgmDir),

@@ -187,6 +187,7 @@ sudo rm -rf /tmp/va-check
 | `NOTE_MAX_TOTAL` / `REQUEST_MAX_TOTAL` | 2000 / 1000 | ノート・要望を残す件数 |
 | `CHAT_TTL_HOURS` | 24 | チャットの発言を残す時間（過ぎたら DB からも開いている画面からも消える。1〜8760。0.5.1〜） |
 | `SPECTATE` / `SPECTATE_MAX_VIEWERS` / `SPECTATE_FPS` / `SPECTATE_MAX_STREAMS` | on / 8 / 5 / 6 | ほかの人のプレイの観戦（0.6.0〜）。`off` で止める・1 人を見られる人数・画像の 1 秒の枚数・同時に見られている人の合計 |
+| `CABINET_MAX_PER_USER` | 4 | 1 人が配信を登録できる筐体の数（部屋ごと。1〜16。0.7.0〜。0.6.x までは 1 台） |
 | `SLOT_BIG_ODDS` / `SLOT_REG_ODDS` | 256 / 400 | スロットの BIG・REG の確率（1/n。0.7.0〜）。**画面の確認用**（本番では設定しない。変えると機械割が変わる） |
 
 ## 8. Apache に `/arcade/` と `/arcade/ws` の中継を足す

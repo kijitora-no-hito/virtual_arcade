@@ -222,7 +222,8 @@ describe('筐体', () => {
   const URL1 = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ';
 
   it('近づいて使う・設定・空ける（持ち主の決まり）', async () => {
-    const h = await harness('cabinet');
+    // 上限 1 台で（v0.7.0 から既定は 4 台。4 台の確かめは v07cabinets.test.ts）
+    const h = await harness('cabinet', { cabinetMaxPerUser: 1 });
     const a = await h.join('あ');
     const b = await h.join('い');
     // 遠いと使えない
@@ -233,9 +234,9 @@ describe('筐体', () => {
     expect(r.body.cabinet).toMatchObject({ id: 1, owned: true, ownerName: 'あ', ownerPid: a.pid, videoId: null });
     await b.c.waitFor('cabinet', (m) => m.cabinet.id === 1 && m.cabinet.owned);
 
-    // 1 人 1 台
+    // 上限（ここでは 1 台）
     await h.walk(a, 4, 5);
-    expect((await h.call('POST', '/api/cabinets/2/claim', undefined, a.key)).body.code).toBe('already-own');
+    expect((await h.call('POST', '/api/cabinets/2/claim', undefined, a.key)).body.code).toBe('too-many');
     // ほかの人の筐体は使えない・設定できない
     await h.walk(b, 3, 5);
     expect((await h.call('POST', '/api/cabinets/1/claim', undefined, b.key)).body.code).toBe('taken');

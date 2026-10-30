@@ -99,6 +99,8 @@ export interface MetaResponse {
   maxPlayers: number;
   online: number;
   cabinetTtlMs: number;
+  /** v0.7.0：1 人が同時に持てる（配信を登録できる）筐体の数（部屋ごと） */
+  cabinetMaxPerUser?: number;
   adminEnabled: boolean;
   limits: {
     name: number;

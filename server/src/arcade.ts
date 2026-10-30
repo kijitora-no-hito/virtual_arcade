@@ -109,6 +109,7 @@ import {
   checkName,
   claimCabinet,
   claimError,
+  DEFAULT_CABINET_MAX_PER_USER,
   currentTile,
   emptyCabinet,
   expireCabinets,
@@ -813,7 +814,7 @@ export class Arcade {
     return this.room(this.roomOf(keyHash)).cabinets.map((c) => this.cabinetView(c));
   }
 
-  /** 空いている筐体を使う（持ち主になる）。近く（2 マス以内）にいること。1 人 1 台（部屋ごと） */
+  /** 空いている筐体を使う（持ち主になる）。近く（2 マス以内）にいること。1 人 cabinetMaxPerUser 台まで（既定 4。部屋ごと） */
   claim(keyHash: string | null, rawId: unknown): CabinetView {
     const p = this.requireOnline(keyHash);
     this.expire();
@@ -821,10 +822,11 @@ export class Arcade {
     const spot = Number.isInteger(id) ? cabinetSpot(id) : undefined;
     if (!spot) throw new ArcadeError(404, 'その筐体はありません', 'not-found');
     if (cabinetDistance(this.tileOf(p), spot) > 2) throw new ArcadeError(409, '筐体の近くまで行ってから使ってください', 'too-far');
-    const err = claimError(this.room(p.room).cabinets, id, p.keyHash, this.now(), this.cfg.cabinetTtlMs);
+    const max = this.cfg.cabinetMaxPerUser ?? DEFAULT_CABINET_MAX_PER_USER;
+    const err = claimError(this.room(p.room).cabinets, id, p.keyHash, this.now(), this.cfg.cabinetTtlMs, max);
     if (err === 'taken') throw new ArcadeError(409, 'この筐体はほかの人が使っています', 'taken');
-    if (err === 'already-own')
-      throw new ArcadeError(409, 'ほかの筐体を使っています（同時に使えるのは 1 台です。先にそちらを空けてください）', 'already-own');
+    if (err === 'too-many')
+      throw new ArcadeError(409, `配信を登録できるのは 1 人 ${max} 台までです（先にどれかを空けてください）`, 'too-many');
     if (err) throw new ArcadeError(404, 'その筐体はありません', 'not-found');
     const c = claimCabinet(this.cabinetRecord(p.room, id), { id: p.keyHash, name: p.name, pid: p.pid }, this.now(), this.cfg.cabinetTtlMs);
     return this.putCabinet(p.room, c);
