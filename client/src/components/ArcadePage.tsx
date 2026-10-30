@@ -21,6 +21,8 @@ import {
   jstTime,
   nextReservation,
   ROOM_OBJECT_NEAR,
+  SLOT_NEAR,
+  slotSpot,
   type MetaResponse,
   type ReservationView,
   type RoomId,
@@ -69,6 +71,8 @@ import { RequestDialog } from './RequestDialog';
 import { ReservationDialog, RoomDoorDialog } from './ReservationDialog';
 import { RoomAdminDialog, RoomClock } from './RoomAdmin';
 import { ScreenDialog } from './ScreenDialog';
+import { SlotDialog } from './SlotDialog';
+import { CoinBankDialog, LeaveDialog } from './CoinBank';
 import { GameChooser, SpectateDialog } from './SpectateDialog';
 import { WatchView } from './WatchView';
 
@@ -92,6 +96,11 @@ type Dialog =
   /** v0.6.0：観戦（DESIGN §16.10）。だれかが遊んでいる筐体をクリックしたときの［遊ぶ］［見る］・見る窓 */
   | { kind: 'gameChoose'; id: number }
   | { kind: 'spectate'; pid: string }
+  /** v0.7.0：スロットマシン（id = floor.json の slot の番号） */
+  | { kind: 'slot'; id: number }
+  /** v0.7.0：コインの預かり（スマホのメニュー）・退店の確認（手元にコインがあるとき） */
+  | { kind: 'bank' }
+  | { kind: 'leave' }
   | null;
 
 type Hit =
@@ -107,15 +116,24 @@ type Hit =
   | { kind: 'ranking'; game: string }
   /** v0.6.0：遊んでいる人の頭上の名札（🎮。クリックでその人のプレイを見る） */
   | { kind: 'playTag'; pid: string }
+  | { kind: 'slot'; id: number }
   | { kind: 'floor'; x: number; y: number };
 
 /** 遠くからクリックして歩いている：着いたら開く窓（クレーンゲーム・ゲーム筐体・ノート・要望箱・予約部屋の扉） */
-type Pending = { kind: 'crane'; id: number } | { kind: 'game'; id: number } | { kind: 'note' } | { kind: 'request' } | { kind: 'door' };
+type Pending =
+  | { kind: 'crane'; id: number }
+  | { kind: 'game'; id: number }
+  | { kind: 'slot'; id: number }
+  | { kind: 'note' }
+  | { kind: 'request' }
+  | { kind: 'door' };
 
 /** 置いてある物の場所と「近い」の距離 */
 const pendingSpot = (pend: Pending) =>
   pend.kind === 'crane'
     ? craneSpot(pend.id)
+    : pend.kind === 'slot'
+    ? slotSpot(pend.id)
     : pend.kind === 'game'
       ? gameSpot(pend.id)
       : pend.kind === 'note'
@@ -124,16 +142,16 @@ const pendingSpot = (pend: Pending) =>
         ? doorSpots()[0]
         : requestBoxSpots()[0];
 const pendingNear = (pend: Pending) =>
-  pend.kind === 'crane' ? CRANE_NEAR : pend.kind === 'game' ? GAME_NEAR : pend.kind === 'door' ? ROOM_OBJECT_NEAR : NOTE_NEAR;
+  pend.kind === 'crane' ? CRANE_NEAR : pend.kind === 'slot' ? SLOT_NEAR : pend.kind === 'game' ? GAME_NEAR : pend.kind === 'door' ? ROOM_OBJECT_NEAR : NOTE_NEAR;
 /** 着いたら開く窓 */
 const pendingDialog = (pend: Pending): Dialog =>
-  pend.kind === 'crane' ? { kind: 'crane', id: pend.id } : pend.kind === 'game' ? { kind: 'game', id: pend.id } : { kind: pend.kind };
+  pend.kind === 'crane' ? { kind: 'crane', id: pend.id } : pend.kind === 'slot' ? { kind: 'slot', id: pend.id } : pend.kind === 'game' ? { kind: 'game', id: pend.id } : { kind: pend.kind };
 
 /** 扉の上の札（予約部屋の今と次。v0.5.0） */
 /** PC の下のバーの操作の説明（狭い画面では省略・隠すので、全文を title にも入れる。v0.5.1） */
 const HELP_TEXT =
   '移動：床をクリック / WASD・矢印キー　筐体：クリックで視聴・使う　大画面：クリックで配信中の一覧　近づく：配信が小さく流れます（音なし）　' +
-  'クレーンゲーム：右奥・クリックで遊ぶ　掲示板：左の壁・大会やイベントの告知';
+  'クレーンゲーム・スロット：右奥・クリックで遊ぶ　掲示板：左の壁・大会やイベントの告知';
 
 const doorSignText = (room: RoomId, list: ReservationView[], now: number): { sign: string; open: boolean; banner?: string } => {
   const active = activeReservation(list, now);
@@ -243,6 +261,7 @@ export const ArcadePage = ({
     hoverCalendar: false,
     hoverGame: null as number | null,
     hoverRanking: null as number | null,
+    hoverSlot: null as number | null,
     /** 遠くのクレーンゲーム・ゲーム筐体・ノート・要望箱・扉をクリックした：着いたら窓を開く */
     pending: null as Pending | null,
     target: null as SceneUi['target'],
@@ -454,6 +473,12 @@ export const ArcadePage = ({
           return g ? center(g.poly) : null;
         },
         rankings: () => client.rankings,
+        // v0.7.0：スロット台（i 番目。0 から。手前のものが先）
+        slot: (i = 0) => {
+          const s = live.current.hits?.slots[i];
+          return s ? center(s.poly) : null;
+        },
+        coins: () => client.you?.coins ?? 0,
         // 壁のランキングのポスターにいま描いている上位（[名前, 点数]。ランキングが変わるとその場で描き直すことの確認用）
         rankingFace: (game: string) => rankingFaceOf(game),
         // v0.6.0：観戦。遊んでいる人の頭上の名札（pid か、無ければいちばん手前）の位置・その人の pid と見ている人数
@@ -652,6 +677,7 @@ export const ArcadePage = ({
           hoverGame: L.hoverGame,
           hoverRanking: L.hoverRanking,
           rankings: client.rankings,
+          hoverSlot: L.hoverSlot,
         };
         {
           const d = doorSignText(client.room, client.reservations, sNow);
@@ -737,6 +763,8 @@ export const ArcadePage = ({
     for (const c of L.hits.cranes) if (inPoly(c.poly, x, y)) return { kind: 'crane', id: c.id };
     // ゲーム筐体・ランキングのポスター（v0.6.0。ポスターは左の壁）
     for (const g of L.hits.games) if (inPoly(g.poly, x, y)) return { kind: 'game', id: g.id };
+    // スロット台（v0.7.0）
+    for (const g of L.hits.slots) if (inPoly(g.poly, x, y)) return { kind: 'slot', id: g.id };
     for (const g of L.hits.rankings) if (inPoly(g.poly, x, y)) return { kind: 'ranking', game: g.game };
     // ノートの机・要望箱（v0.4.0）
     if (L.hits.notes.some((p) => inPoly(p, x, y))) return { kind: 'note' };
@@ -777,6 +805,7 @@ export const ArcadePage = ({
     L.hoverDoor = hit?.kind === 'door';
     L.hoverCalendar = hit?.kind === 'calendar';
     L.hoverGame = hit?.kind === 'game' ? hit.id : null;
+    L.hoverSlot = hit?.kind === 'slot' ? hit.id : null;
     L.hoverRanking = hit?.kind === 'ranking' ? (live.current.hits?.rankings.find((r) => r.game === hit.game)?.id ?? null) : null;
     const want =
       hit && hit.kind !== 'floor' ? 'pointer' : hit?.kind === 'floor' && isPassable(FLOOR, hit.x, hit.y) ? 'crosshair' : 'default';
@@ -795,6 +824,7 @@ export const ArcadePage = ({
     L.hoverDoor = false;
     L.hoverCalendar = false;
     L.hoverGame = null;
+    L.hoverSlot = null;
     L.hoverRanking = null;
   };
   /** 近ければ窓を開く。遠ければ前のマスまで歩いてから開く（クレーンゲーム DESIGN §8.1・ノート §12.1・要望箱 §13.1） */
@@ -825,6 +855,8 @@ export const ArcadePage = ({
     client.showToast(
       pend.kind === 'crane'
         ? 'クレーンゲームまで歩いています…'
+        : pend.kind === 'slot'
+        ? 'スロットまで歩いています…'
         : pend.kind === 'game'
           ? `${gameInfo(gameSpot(pend.id)?.game ?? '')?.title ?? 'ゲーム'} の筐体まで歩いています…`
           : pend.kind === 'note'
@@ -837,9 +869,10 @@ export const ArcadePage = ({
   /** クリック・タップしたもの */
   const act = (hit: Hit | null) => {
     if (!hit) return;
-    if (hit.kind !== 'crane' && hit.kind !== 'game' && hit.kind !== 'note' && hit.kind !== 'request' && hit.kind !== 'door') live.current.pending = null;
+    if (hit.kind !== 'crane' && hit.kind !== 'slot' && hit.kind !== 'game' && hit.kind !== 'note' && hit.kind !== 'request' && hit.kind !== 'door') live.current.pending = null;
     if (hit.kind === 'cabinet') setDialog({ kind: 'cabinet', id: hit.id });
     else if (hit.kind === 'crane') openNear({ kind: 'crane', id: hit.id });
+    else if (hit.kind === 'slot') openNear({ kind: 'slot', id: hit.id });
     else if (hit.kind === 'game') {
       // だれかが遊んでいれば［▶ 遊ぶ］と［👀 〇〇 さんのプレイを見る］（観戦。DESIGN §16.10）。いなければ今までどおり
       const g = gameSpot(hit.id)?.game;
@@ -1057,9 +1090,17 @@ export const ArcadePage = ({
     </div>
   );
 
-  // 退店：クレーンゲームのバッジが消える。サーバが接続を切る（bye）
+  // 退店：クレーンゲームのバッジ・手元のコインが消える。サーバが接続を切る（bye）。
+  // v0.7.0：手元にコインがあれば確認の窓（［預けてから退店］［そのまま退店］）
   const leave = async () => {
+    if (you?.coins) {
+      setDialog({ kind: 'leave' });
+      return;
+    }
     if (!window.confirm(`退店しますか？${you?.badges ? `（クレーンゲームのバッジ ${you.badges} は消えます）` : ''}`)) return;
+    await doLeave();
+  };
+  const doLeave = async () => {
     try {
       await api('POST', '/api/leave');
     } catch (e) {
@@ -1186,6 +1227,9 @@ export const ArcadePage = ({
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === 'bank' && <CoinBankDialog client={client} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'leave' && <LeaveDialog client={client} onLeave={() => void doLeave()} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'slot' && <SlotDialog key={dialog.id} client={client} id={dialog.id} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'crane' && <CraneDialog client={client} id={dialog.id} meta={meta} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'game' && gameSpot(dialog.id) && (
         <GameDialog key={dialog.id} client={client} game={gameSpot(dialog.id)!.game} onClose={() => setDialog(null)} />
@@ -1327,6 +1371,10 @@ export const ArcadePage = ({
               setMenuOpen(false);
               void leave();
             }}
+            onBank={() => {
+              setMenuOpen(false);
+              setDialog({ kind: 'bank' });
+            }}
             room={room}
             onSchedule={() => {
               setMenuOpen(false);
@@ -1384,11 +1432,16 @@ export const ArcadePage = ({
                 {you.name}
               </span>
               <Badges badges={you.badges} />
+              {!!you.coins && (
+                <span className="me-coins" title={`スロットのコイン ${you.coins} 枚`}>
+                  🪙{you.coins.toLocaleString('en-US')}
+                </span>
+              )}
               <span className="muted small me-look">　見た目を変える</span>
             </button>
           )}
           {you && (
-            <button className="ghost" onClick={leave} title="店を出る（クレーンゲームのバッジが消えます）">
+            <button className="ghost" onClick={() => void leave()} title="店を出る（クレーンゲームのバッジ・手元のコインが消えます）">
               退店
             </button>
           )}
@@ -1432,7 +1485,7 @@ export const ArcadePage = ({
               <b>大画面</b> クリックで配信中の一覧　<b>近づく</b> 配信が小さく流れます（音なし）
             </div>
             <div>
-              <b>クレーンゲーム</b> 右奥・クリックで遊ぶ　<b>掲示板</b> 左の壁・大会やイベントの告知
+              <b>クレーンゲーム・スロット</b> 右奥・クリックで遊ぶ　<b>掲示板</b> 左の壁・大会やイベントの告知
             </div>
           </div>
           <div className="help help-short" title={HELP_TEXT}>

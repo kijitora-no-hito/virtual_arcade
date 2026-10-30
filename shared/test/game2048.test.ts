@@ -186,12 +186,12 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
     expect(g[0]).toMatchObject({ x: 14, y: 4 });
     expect(gameSpots(FLOOR, 'hextris')[0]).toMatchObject({ x: 15, y: 4, face: 'S' });
     expect(isPassable(FLOOR, 15, 4)).toBe(false);
-    // 前のマスと、床の立て看板をやめて空いたマス (17,4)・(16,9)・(20,3)（2026-10-30 ユーザー指定でランキングを壁へ）は通れる
+    // 前のマスと、床の立て看板をやめて空いたマス (16,9)・(20,3)（2026-10-30 ユーザー指定でランキングを壁へ）は通れる
+    // （(17,4) は v0.7.0 からスロット台）
     for (const [x, y] of [
       [15, 5],
       [14, 10],
       [15, 9],
-      [17, 4],
       [16, 9],
       [20, 3],
     ])
@@ -246,14 +246,14 @@ describe('ゲームの一覧・置き場所（floor.json）', () => {
   it('loadFloor：game の game・face が無い・前のマスがふさがっていればエラー', () => {
     const base = floorJson as FloorJson;
     const withDecor = (d: object) => ({ ...base, decor: [...base.decor.filter((x) => x.type !== 'game'), d] }) as FloorJson;
-    expect(() => loadFloor(withDecor({ type: 'game', x: 18, y: 5, face: 'S' }))).toThrow(/game/);
-    expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 18, y: 5 }))).toThrow(/face/);
-    expect(() => loadFloor(withDecor({ type: 'game', game: 'Bad Name', x: 18, y: 5, face: 'S' }))).toThrow(/game/);
+    expect(() => loadFloor(withDecor({ type: 'game', x: 18, y: 6, face: 'S' }))).toThrow(/game/);
+    expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 18, y: 6 }))).toThrow(/face/);
+    expect(() => loadFloor(withDecor({ type: 'game', game: 'Bad Name', x: 18, y: 6, face: 'S' }))).toThrow(/game/);
     // ベンチ (17,9) の上のマス (17,8) の筐体は前のマスがベンチでふさがる
     expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 17, y: 8, face: 'S' }))).toThrow(/前のマス/);
-    expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 18, y: 5, face: 'S' }))).not.toThrow();
+    expect(() => loadFloor(withDecor({ type: 'game', game: '2048', x: 18, y: 6, face: 'S' }))).not.toThrow();
     // 床の立て看板（ranking）は v0.6.0 の途中でやめた（ランキングは壁の rankingWall）
-    expect(() => loadFloor(withDecor({ type: 'ranking', game: '2048', x: 18, y: 5 }))).toThrow(/type/);
+    expect(() => loadFloor(withDecor({ type: 'ranking', game: '2048', x: 18, y: 6 }))).toThrow(/type/);
   });
 });
 

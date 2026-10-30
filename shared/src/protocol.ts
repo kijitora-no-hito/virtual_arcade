@@ -8,6 +8,7 @@ import type { ReservationView, RoomId } from './rooms';
 import type { Point } from './floor';
 import type { Emote, Look, Stance } from './looks';
 import type { SpectateInfo } from './spectate';
+import type { SlotBonus, SlotRole } from './slot';
 
 /** ほかの人に見える人の情報（鍵・ハッシュは載せない。pid は公開 ID） */
 export interface PlayerView {
@@ -27,7 +28,7 @@ export interface PlayerView {
   pinned: PinnedChat | null;
   /** v0.5.0：予約部屋の主催者（いまの予約を予約した人。予約部屋の中だけ）。名前の前に「主催」 */
   host?: boolean;
-  /** v0.6.0：遊んでいるゲーム（ゲームの窓を開いている間。頭上の名前の横に 🎮）。null / 無し = 遊んでいない */
+  /** v0.6.0：遊んでいるゲーム（ゲームの窓を開いている間。頭上の名前の横に 🎮。v0.7.0：'slot' はスロットの窓で 🎰）。null / 無し = 遊んでいない */
   playing?: string | null;
   /** v0.6.0：ポーズ（ベガ立ち = 腕を組む。動くまで続く）。null / 無し = ふつう */
   stance?: Stance | null;
@@ -89,6 +90,8 @@ export interface Profile {
   admin: boolean;
   /** クレーンゲームのバッジ */
   badges: string;
+  /** v0.7.0：スロットのコイン（自分だけに見える。ほかの人には送らない。DESIGN §17） */
+  coins?: number;
 }
 
 export interface MetaResponse {
@@ -159,6 +162,75 @@ export interface CranePlayResponse {
   serverNow: number;
   /** 判定のあとのケース（演出が終わったらこれに差し替える） */
   machine: CraneMachineView;
+}
+
+// ---------------------------------------------------------------- スロットマシンとコイン（v0.7.0。DESIGN §17）
+
+/** POST /api/slot/:id/spin（と、GET の pending） */
+export interface SlotSpinResponse {
+  spinId: string;
+  /** この回に揃えられる役（すべりの計算に使う。null = はずれ） */
+  flag: SlotRole | null;
+  /** 持ち越しているボーナス（内部中。リールが全部止まったら LUCKY ランプを光らせる） */
+  internal: SlotBonus | null;
+  /** 掛けたあとのコイン */
+  coins: number;
+  /** 掛けた枚数（リプレイの次の回は 0） */
+  bet: number;
+}
+
+/** POST /api/slot/:id/stop */
+export interface SlotStopResponse {
+  /** 止まった位置（中段のコマの番号。左・中・右） */
+  reels: number[];
+  /** 揃った役（null = はずれ） */
+  win: SlotRole | null;
+  payout: number;
+  coins: number;
+  /** 止まったあとの内部中のボーナス（揃えたら null） */
+  bonus: SlotBonus | null;
+  /** 次の回はリプレイ（掛けずに回せる） */
+  replay: boolean;
+}
+
+/** GET /api/slot/:id */
+export interface SlotStateResponse {
+  coins: number;
+  badges: string;
+  /** 内部中のボーナス（LUCKY ランプ） */
+  bonus: SlotBonus | null;
+  replay: boolean;
+  /** 止めていない回（再読み込みなど。続きを止められる） */
+  pending: SlotSpinResponse | null;
+  /** 次に回せる時刻（サーバの時刻） */
+  nextAt: number;
+  serverNow: number;
+}
+
+/** POST /api/slot/deposit（手元のコインを全部預ける。v0.7.0） */
+export interface SlotDepositResponse {
+  /** 預かりのキー（アルファベット大文字 4 文字。引き出すときに入れる。1 回だけ使える） */
+  code: string;
+  /** 預けた枚数 */
+  deposited: number;
+  /** 預けたあとの手元のコイン（0） */
+  coins: number;
+  /** この時刻を過ぎると預けたものは消える */
+  expiresAt: number;
+}
+
+/** POST /api/slot/withdraw {code} */
+export interface SlotWithdrawResponse {
+  /** 引き出した枚数 */
+  withdrawn: number;
+  /** 引き出したあとの手元のコイン */
+  coins: number;
+}
+
+/** POST /api/slot/exchange {suit} */
+export interface SlotExchangeResponse {
+  coins: number;
+  badges: string;
 }
 
 /** GET /api/reservations（v0.5.0。誰でも読める。合言葉・ハッシュは載せない） */

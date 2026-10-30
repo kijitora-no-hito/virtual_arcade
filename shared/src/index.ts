@@ -17,3 +17,4 @@ export * from './columns';
 export * from './gameRecord';
 export * from './hextris';
 export * from './spectate';
+export * from './slot';

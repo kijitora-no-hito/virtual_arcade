@@ -9,6 +9,8 @@ import {
   gameInfo,
   gameSpots,
   rankingSpots,
+  slotSpots,
+  type SlotSpot,
   type GameSpot,
   type RankingEntry,
   type RankingSpot,
@@ -33,6 +35,7 @@ import type { ArcadeClient, ClientPlayer } from './client';
 import { worldBlit } from './camera';
 import { TH, toScreen, TW, WALL_H, type SP, type View } from './iso';
 import { getThumb } from './thumbs';
+import { drawSymbol } from './slotGame';
 
 const FONT = '"Yu Gothic UI", "Meiryo", "Hiragino Sans", system-ui, sans-serif';
 const font = (px: number, weight = 600) => `${weight} ${Math.max(8, px).toFixed(1)}px ${FONT}`;
@@ -72,6 +75,8 @@ export interface SceneUi {
   hoverGame?: number | null;
   hoverRanking?: number | null;
   rankings?: Record<string, RankingEntry[]>;
+  /** v0.7.0：カーソルの下のスロット台（id） */
+  hoverSlot?: number | null;
 }
 
 /** スマホ：床・壁を描いた大きな canvas と、その View（camera.ts の worldView） */
@@ -105,6 +110,8 @@ export interface SceneHits {
   rankings: Array<{ id: number; game: string; poly: SP[] }>;
   /** v0.6.0：遊んでいる人（自分以外）の頭上の名札（🎮。クリックでその人のプレイを見る。手前の人が先） */
   playTags: Array<{ pid: string; game: string; x: number; y: number; w: number; h: number }>;
+  /** v0.7.0：スロット台（手前のものが先） */
+  slots: Array<{ id: number; poly: SP[] }>;
 }
 
 // ---------------------------------------------------------------- 小さな道具
@@ -1363,6 +1370,119 @@ const drawGameCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: GameSpot,
   ctx.stroke();
 };
 
+// ---------------------------------------------------------------- スロット台（v0.7.0。DESIGN §17）
+
+const SLOT_INSET = 0.08;
+const SLOT_BOX_H = 92;
+/** 正面の上の看板の高さ */
+const SLOT_SIGN_H = 20;
+const SLOT_RED = '#ff2d55';
+const SLOT_GOLD = '#ffd34d';
+
+/** スロット台：赤い箱・正面の上に「SLOT」の看板・正面に LUCKY ランプと 3 つのリール窓（7 の絵）・横にレバー */
+const drawSlotCabinet = (ctx: CanvasRenderingContext2D, v: View, spot: SlotSpot, t: number) => {
+  const s = v.s;
+  const b = boxAt(v, spot.x, spot.y, SLOT_INSET, SLOT_BOX_H);
+  drawBox(ctx, b, '#ff6b8a', spot.face === 'S' ? '#7a0f2a' : '#a8173c', spot.face === 'S' ? '#a8173c' : '#7a0f2a');
+  // 横の面：金色の帯と、レバー（ときどき引かれる）
+  const side: 'S' | 'E' = spot.face === 'S' ? 'E' : 'S';
+  withFace(ctx, v, spot.x, spot.y, side, SLOT_INSET, SLOT_BOX_H, (fw, fh) => {
+    ctx.fillStyle = SLOT_GOLD;
+    ctx.globalAlpha = 0.8;
+    ctx.fillRect(0, fh * 0.12, fw, fh * 0.04);
+    ctx.fillRect(0, fh * 0.62, fw, fh * 0.04);
+    ctx.globalAlpha = 1;
+    const pull = Math.max(0, Math.sin(t / 700 + spot.id * 1.7)) ** 6;
+    const bx = fw * 0.3;
+    const by = fh * 0.42;
+    const ty = by - fh * (0.28 - pull * 0.22);
+    ctx.strokeStyle = '#d8d8e0';
+    ctx.lineWidth = Math.max(1.5, 2.2 * s);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + fw * 0.12, ty);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.fillStyle = SLOT_RED;
+    ctx.beginPath();
+    ctx.arc(bx + fw * 0.12, ty, Math.max(2, 3.6 * s), 0, Math.PI * 2);
+    ctx.fill();
+  });
+  // 正面：LUCKY ランプ（店内の台は飾り。ときどき光る）・3 つのリール窓（白地に赤い 7）・止めるボタン
+  withFace(ctx, v, spot.x, spot.y, spot.face, SLOT_INSET, SLOT_BOX_H, (fw, fh) => {
+    ctx.fillStyle = '#2a0614';
+    ctx.fillRect(1, 1, fw - 2, fh * 0.15);
+    const blink = Math.sin(t / 260 + spot.id * 2.1) > 0.55;
+    ctx.save();
+    if (blink) {
+      ctx.shadowColor = '#ffb43d';
+      ctx.shadowBlur = 10;
+    }
+    ctx.fillStyle = blink ? '#ffcf4d' : '#6b4a20';
+    ctx.beginPath();
+    ctx.roundRect(fw * 0.22, fh * 0.025, fw * 0.56, fh * 0.1, fh * 0.05);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = blink ? '#3a1200' : '#c8a070';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitText(ctx, 'LUCKY', fw / 2, fh * 0.078, fw * 0.5, Math.max(4, fh * 0.07));
+    const sy = fh * 0.2;
+    const sh = fh * 0.3;
+    ctx.fillStyle = '#12020a';
+    ctx.fillRect(fw * 0.06 - 1.5, sy - 1.5, fw * 0.88 + 3, sh + 3);
+    const ww = (fw * 0.88 - 4) / 3;
+    for (let i = 0; i < 3; i++) {
+      const wx = fw * 0.06 + i * (ww + 2);
+      ctx.fillStyle = '#fbf7ee';
+      ctx.fillRect(wx, sy, ww, sh);
+      drawSymbol(ctx, 'seven', wx + ww / 2, sy + sh / 2, Math.min(sh * 0.8, ww * 1.15));
+    }
+    ctx.strokeStyle = SLOT_RED;
+    ctx.lineWidth = Math.max(0.8, s);
+    ctx.beginPath();
+    ctx.moveTo(fw * 0.04, sy + sh / 2);
+    ctx.lineTo(fw * 0.96, sy + sh / 2);
+    ctx.stroke();
+    ctx.fillStyle = '#3a0716';
+    ctx.fillRect(1, fh * 0.56, fw - 2, fh * 0.1);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = SLOT_GOLD;
+      ctx.beginPath();
+      ctx.arc(fw * (0.3 + i * 0.2), fh * 0.61, Math.max(1, fw * 0.045), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#c0c0cc';
+    ctx.fillRect(fw * 0.25, fh * 0.8, fw * 0.5, fh * 0.05);
+  });
+  // 上の看板「SLOT」：正面と同じ面の上に立てる（台を並べても隣の台に重ならない）
+  withFace(ctx, v, spot.x, spot.y, spot.face, SLOT_INSET, SLOT_BOX_H + SLOT_SIGN_H, (fw) => {
+    const h = SLOT_SIGN_H * s;
+    const glow = 0.7 + 0.3 * Math.sin(t / 420 + spot.id);
+    ctx.save();
+    ctx.shadowColor = SLOT_RED;
+    ctx.shadowBlur = 12 * glow;
+    ctx.fillStyle = SLOT_RED;
+    ctx.beginPath();
+    ctx.roundRect(1, 0, fw - 2, h, 3 * s);
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = SLOT_GOLD;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.roundRect(1, 0, fw - 2, h, 3 * s);
+    ctx.stroke();
+    ctx.fillStyle = '#fff6d0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitText(ctx, 'SLOT', fw / 2, h / 2 + 0.5 * s, fw - 6 * s, 11 * s);
+  });
+};
+
+/** スロット台の当たり判定（箱と、正面の上の看板の分の高さ） */
+const slotCabinetPoly = (v: View, spot: SlotSpot): SP[] => boxOutline(boxAt(v, spot.x, spot.y, SLOT_INSET, SLOT_BOX_H + SLOT_SIGN_H));
+
 /** ゲーム筐体の当たり判定（箱と上の看板） */
 const gameCabinetPoly = (v: View, spot: GameSpot): SP[] => {
   const b = boxAt(v, spot.x, spot.y, GAME_INSET, GAME_H);
@@ -1543,6 +1663,11 @@ const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number, 
       if (spot) drawGameCabinet(ctx, v, spot, t);
       break;
     }
+    case 'slot': {
+      const spot = slotSpots().find((g) => g.x === d.x && g.y === d.y);
+      if (spot) drawSlotCabinet(ctx, v, spot, t);
+      break;
+    }
     case 'plant': {
       const b = boxAt(v, d.x, d.y, 0.3, 16);
       drawBox(ctx, b, '#8a5a3c', '#5b3a26', '#6e4630');
@@ -1704,6 +1829,8 @@ const drawDecor = (ctx: CanvasRenderingContext2D, v: View, d: Decor, t: number, 
 const decorBox = (v: View, d: Decor): Box =>
   d.type === 'game'
     ? boxAt(v, d.x, d.y, GAME_INSET, GAME_H)
+    : d.type === 'slot'
+    ? boxAt(v, d.x, d.y, SLOT_INSET, SLOT_BOX_H)
     : d.type === 'door'
     ? panelBox(v, d.x, d.y, 0.08, 0.2, 0, DOOR_H)
     : d.type === 'calendar'
@@ -1719,7 +1846,8 @@ const decorBox = (v: View, d: Decor): Box =>
 const drawNameTag = (ctx: CanvasRenderingContext2D, x: number, y: number, s: number, p: ClientPlayer, me: boolean) => {
   // v0.6.0：ゲームの窓を開いている人は名前の横に 🎮
   // 観戦（DESIGN §16.10）：見ている人がいれば 👀 と人数
-  const label = `${p.playing ? (p.viewers ? `🎮👀${p.viewers} ` : '🎮 ') : ''}${p.admin ? '★ ' : ''}${p.host ? '［主催］' : ''}${p.name}`;
+  // v0.7.0：スロットの窓を開いている人は 🎰
+  const label = `${p.playing === 'slot' ? '🎰 ' : p.playing ? (p.viewers ? `🎮👀${p.viewers} ` : '🎮 ') : ''}${p.admin ? '★ ' : ''}${p.host ? '［主催］' : ''}${p.name}`;
   const badges = [...(p.badges ?? '')].filter(isSuit);
   let h: number;
   if (!badges.length)
@@ -2053,12 +2181,15 @@ export const drawScene = (
   }
   const cranes = craneSpots();
   const games = gameSpots();
+  const slots = slotSpots();
   for (const d of FLOOR.decor) {
     const crane = d.type === 'crane' ? cranes.find((c) => c.x === d.x && c.y === d.y) : undefined;
     const gameSpot = d.type === 'game' ? games.find((c) => c.x === d.x && c.y === d.y) : undefined;
-    const hlPoly = gameSpot ? gameCabinetPoly(v, gameSpot) : null;
+    const slotSpot = d.type === 'slot' ? slots.find((c) => c.x === d.x && c.y === d.y) : undefined;
+    const hlPoly = gameSpot ? gameCabinetPoly(v, gameSpot) : slotSpot ? slotCabinetPoly(v, slotSpot) : null;
     const hl =
       (!!gameSpot && ui.hoverGame === gameSpot.id) ||
+      (!!slotSpot && ui.hoverSlot === slotSpot.id) ||
       (!!crane && ui.hoverCrane === crane.id) ||
       (d.type === 'note' && !!ui.hoverNote) ||
       (d.type === 'requestbox' && !!ui.hoverRequest) ||
@@ -2118,7 +2249,7 @@ export const drawScene = (
     const c = toScreen(v, pose.x + 0.5, pose.y + 0.5);
     let y = c.y - (charTop(p.watching !== null) + 6) * s;
     const th = drawNameTag(ctx, c.x, y, ts, p, me);
-    if (p.playing && !me) {
+    if (p.playing && p.playing !== 'slot' && !me) {
       ctx.font = font(11.5 * ts, 700);
       const w = ctx.measureText(`🎮👀0 ${p.name}${p.badges ?? ''}`).width + 11.5 * ts * 1.4;
       playTags.unshift({ pid: p.pid, game: p.playing, x: c.x - w / 2, y: y - th, w, h: th });
@@ -2162,7 +2293,20 @@ export const drawScene = (
       .map((g) => ({ id: g.id, game: g.game, poly: gameCabinetPoly(v, g) })),
     rankings: rankBoards.map((g) => ({ id: g.id, game: g.game, poly: rankingPoly(v, g) })),
     playTags,
+    slots: slots
+      .slice()
+      .sort((a, b) => b.x + b.y - (a.x + a.y))
+      .map((g) => ({ id: g.id, poly: slotCabinetPoly(v, g) })),
   };
+  // スロット台の札（カーソルを置いたとき。v0.7.0）
+  if (ui.hoverSlot) {
+    const g = slots.find((x) => x.id === ui.hoverSlot);
+    if (g) {
+      const top = toScreen(v, g.x + 0.5, g.y + 0.5, SLOT_BOX_H + SLOT_SIGN_H + 30);
+      const { h } = pill(ctx, top.x, top.y, 'スロット　クリックで遊ぶ', 10.5 * ts, '#fff', 'rgba(20, 8, 40, 0.92)', SLOT_RED);
+      pill(ctx, top.x, top.y - h - 3 * ts, 'マーク 1 つ = コイン 10 枚', 9.5 * ts, '#1a1300', SLOT_GOLD);
+    }
+  }
   // ゲーム筐体・ランキングのポスターの札（カーソルを置いたとき。v0.6.0）
   if (ui.hoverGame) {
     const g = games.find((x) => x.id === ui.hoverGame);

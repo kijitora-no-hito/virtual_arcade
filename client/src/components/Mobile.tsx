@@ -123,6 +123,7 @@ export const MobileMenu = ({
   onEditProfile,
   onAdmin,
   onLeave,
+  onBank,
   onClose,
   version,
   adminBadge,
@@ -145,6 +146,8 @@ export const MobileMenu = ({
   onEditProfile: () => void;
   onAdmin: () => void;
   onLeave: () => void;
+  /** v0.7.0：コインを預ける・引き出す */
+  onBank?: () => void;
   onClose: () => void;
   version?: string;
   /** 管理者のボタンに出す数（未読の要望など） */
@@ -158,8 +161,16 @@ export const MobileMenu = ({
           {host && <span className="host-tag">主催</span>}
           {you.name}
           <Badges badges={you.badges} />
+          <span className="m-menu-coins" title="スロットのコイン（自分だけに見えます）">
+            🪙 {(you.coins ?? 0).toLocaleString('en-US')} 枚
+          </span>
         </span>
         <button onClick={onEditProfile}>見た目を変える</button>
+      </div>
+    )}
+    {you && onBank && (
+      <div className="m-menu-actions">
+        <button onClick={onBank}>🏦 コインを預ける・引き出す</button>
       </div>
     )}
     {(onSchedule || onDoor) && (

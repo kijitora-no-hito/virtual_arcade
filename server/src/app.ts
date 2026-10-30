@@ -42,7 +42,7 @@ import { CLIENT_DIST } from './paths';
 import { hashKey } from './secret';
 
 declare const __VA_VERSION__: string | undefined;
-export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.6.0';
+export const VERSION = typeof __VA_VERSION__ !== 'undefined' ? __VA_VERSION__ : '0.7.0';
 
 export interface AppOptions {
   dbPath: string;
@@ -112,6 +112,12 @@ export const createServer = (opts: AppOptions) => {
     gameKey: new RateLimiter(cfg.rates.gameKey),
     game: new RateLimiter(cfg.rates.game),
     gameFinishKey: new RateLimiter(cfg.rates.gameFinishKey),
+    slotKey: new RateLimiter(cfg.rates.slotKey),
+    slotSpinKey: new RateLimiter(cfg.rates.slotSpinKey),
+    bankKey: new RateLimiter(cfg.rates.bankKey),
+    bankWrongKey: new RateLimiter(cfg.rates.bankWrongKey),
+    bankWrong: new RateLimiter(cfg.rates.bankWrong),
+    bankWrongAll: new RateLimiter(cfg.rates.bankWrongAll),
   };
   const lastChat = new Map<string, number>();
   const lastEmote = new Map<string, number>();
@@ -367,6 +373,68 @@ export const createServer = (opts: AppOptions) => {
     route((req, res) => {
       const k = craneLimit(req);
       res.json(arcade.cranePlay(k, req.params.id, req.body?.x, req.body?.z));
+    }),
+  );
+
+  // ---- スロットマシンとコイン（v0.7.0。DESIGN §17。内部抽選・配当はサーバが決める）
+  const slotLimit = (req: Request) => {
+    const k = keyOf(req);
+    if (k) limit(limits.slotKey, k, 'スロットの操作');
+    return k;
+  };
+  api.post(
+    '/slot/exchange',
+    route((req, res) => {
+      res.json(arcade.slotExchange(slotLimit(req), req.body?.suit));
+    }),
+  );
+  // コインの預かり（キーはログにも出さない。間違いだけを鍵ごと・IP ごと・全体で数える）
+  api.post(
+    '/slot/deposit',
+    route((req, res) => {
+      const k = keyOf(req);
+      if (k) limit(limits.bankKey, k, 'コインの預け入れ・引き出し');
+      res.json(arcade.slotDeposit(k));
+    }),
+  );
+  api.post(
+    '/slot/withdraw',
+    route((req, res) => {
+      const k = keyOf(req);
+      const ip = ipOf(req);
+      if ((k && limits.bankWrongKey.blocked(k)) || limits.bankWrong.blocked(ip) || limits.bankWrongAll.blocked('all'))
+        throw new ArcadeError(429, 'キーの間違いが多すぎます。少し待ってからやり直してください', 'rate');
+      if (k) limit(limits.bankKey, k, 'コインの預け入れ・引き出し');
+      try {
+        res.json(arcade.slotWithdraw(k, req.body?.code));
+      } catch (e) {
+        if (e instanceof ArcadeError && e.code === 'bad-code') {
+          if (k) limits.bankWrongKey.hit(k);
+          limits.bankWrong.hit(ip);
+          limits.bankWrongAll.hit('all');
+        }
+        throw e;
+      }
+    }),
+  );
+  api.get(
+    '/slot/:id',
+    route((req, res) => {
+      res.json(arcade.slotState(slotLimit(req), req.params.id));
+    }),
+  );
+  api.post(
+    '/slot/:id/spin',
+    route((req, res) => {
+      const k = slotLimit(req);
+      if (k) limit(limits.slotSpinKey, k, 'スロットのレバー');
+      res.json(arcade.slotSpin(k, req.params.id));
+    }),
+  );
+  api.post(
+    '/slot/:id/stop',
+    route((req, res) => {
+      res.json(arcade.slotStop(slotLimit(req), req.params.id, req.body));
     }),
   );
 

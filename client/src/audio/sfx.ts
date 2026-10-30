@@ -1,8 +1,27 @@
-// クレーンゲームの効果音（短い合成音）。BGM とは別の出口（お知らせのチャイムと同じ sfx）で鳴らす。
+// クレーンゲームとスロット（v0.7.0）の効果音（短い合成音）。BGM とは別の出口（お知らせのチャイムと同じ sfx）で鳴らす。
 
 import { midiToFreq } from '@va/shared';
 
-export type SfxName = 'tick' | 'stop' | 'down' | 'grab' | 'up' | 'release' | 'fall' | 'win' | 'lose' | 'complete';
+export type SfxName =
+  | 'tick'
+  | 'stop'
+  | 'down'
+  | 'grab'
+  | 'up'
+  | 'release'
+  | 'fall'
+  | 'win'
+  | 'lose'
+  | 'complete'
+  // v0.7.0：スロット（レバー・リールが止まる・小役・リプレイ・ボーナス・LUCKY ランプ・両替のコイン・コインが足りない）
+  | 'lever'
+  | 'reel'
+  | 'small'
+  | 'replay'
+  | 'bonus'
+  | 'lamp'
+  | 'coin'
+  | 'buzz';
 
 const tone = (
   ctx: BaseAudioContext,
@@ -69,6 +88,34 @@ export const playSfx = (ctx: BaseAudioContext, dest: AudioNode, name: SfxName, l
       break;
     case 'complete':
       notes(ctx, dest, at, level * 0.55, [72, 76, 79, 84, 79, 84, 88, 91], 0.09, 0.9);
+      break;
+    case 'lever':
+      tone(ctx, dest, at, 0.06, level * 0.5, 'square', 220, 160);
+      tone(ctx, dest, at + 0.05, 0.25, level * 0.25, 'triangle', 880, 1320);
+      break;
+    case 'reel':
+      tone(ctx, dest, at, 0.05, level * 0.6, 'square', 300, 180);
+      tone(ctx, dest, at, 0.03, level * 0.3, 'triangle', 1200, 900);
+      break;
+    case 'small':
+      notes(ctx, dest, at, level * 0.45, [79, 84, 88], 0.07, 0.3);
+      break;
+    case 'replay':
+      notes(ctx, dest, at, level * 0.4, [76, 81], 0.08, 0.25);
+      break;
+    case 'bonus':
+      notes(ctx, dest, at, level * 0.55, [72, 76, 79, 84, 76, 79, 84, 88, 79, 84, 88, 91, 96], 0.075, 1.1);
+      break;
+    case 'lamp':
+      tone(ctx, dest, at, 0.5, level * 0.5, 'triangle', 1568, 1568);
+      tone(ctx, dest, at, 0.5, level * 0.2, 'square', 2093, 2093);
+      break;
+    case 'coin':
+      tone(ctx, dest, at, 0.06, level * 0.45, 'square', 1975, 1975);
+      tone(ctx, dest, at + 0.06, 0.25, level * 0.45, 'square', 2637, 2637);
+      break;
+    case 'buzz':
+      tone(ctx, dest, at, 0.22, level * 0.4, 'sawtooth', 110, 90);
       break;
   }
 };

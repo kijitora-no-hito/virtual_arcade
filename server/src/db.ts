@@ -181,6 +181,11 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS game_scores_score ON game_scores(game, score DESC);
       CREATE INDEX IF NOT EXISTS game_scores_key ON game_scores(game, key_hash);
+      CREATE TABLE IF NOT EXISTS coin_bank (
+        code TEXT PRIMARY KEY,
+        coins INTEGER NOT NULL,
+        at INTEGER NOT NULL
+      );
     `);
     // v0.3.0：発言したときのバッジ（前の版の DB には列が無い）
     const cols = (this.db.prepare(`PRAGMA table_info(chat)`).all() as Array<{ name: string }>).map((c) => c.name);
@@ -188,6 +193,40 @@ export class Store {
     // v0.6.0：ゲームごとの中身（Columns like game の開始レベルなど。JSON）。2048 だけのときに作った表には列が無い
     const gcols = (this.db.prepare(`PRAGMA table_info(game_scores)`).all() as Array<{ name: string }>).map((c) => c.name);
     if (!gcols.includes('detail')) this.db.exec(`ALTER TABLE game_scores ADD COLUMN detail TEXT`);
+  }
+
+  // ---------------------------------------------------------------- コインの預かり（v0.7.0。DESIGN §17.7。キー → 枚数。誰が預けたかは持たない）
+
+  /** そのキーが使われているか（期限の過ぎたものは数えない） */
+  bankHas(code: string, since: number): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM coin_bank WHERE code = ? AND at >= ?`).get(code, since);
+  }
+
+  addBank(code: string, coins: number, at: number): void {
+    // 期限の過ぎた同じキーが残っていれば上書き
+    this.db
+      .prepare(`INSERT INTO coin_bank (code, coins, at) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET coins = excluded.coins, at = excluded.at`)
+      .run(code, coins, at);
+  }
+
+  /** キーの枚数（期限の過ぎたものは無いことにする） */
+  peekBank(code: string, since: number): number | null {
+    const r = this.db.prepare(`SELECT coins FROM coin_bank WHERE code = ? AND at >= ?`).get(code, since) as { coins: number } | undefined;
+    return r ? Number(r.coins) : null;
+  }
+
+  /** 引き出す（1 回だけ。消す） */
+  deleteBank(code: string): boolean {
+    return Number(this.db.prepare(`DELETE FROM coin_bank WHERE code = ?`).run(code).changes) > 0;
+  }
+
+  /** 期限の過ぎた預かりを消す */
+  pruneBank(before: number): number {
+    return Number(this.db.prepare(`DELETE FROM coin_bank WHERE at < ?`).run(before).changes);
+  }
+
+  countBank(): number {
+    return Number((this.db.prepare(`SELECT COUNT(*) AS n FROM coin_bank`).get() as { n: number }).n);
   }
 
   // ---------------------------------------------------------------- 来た人

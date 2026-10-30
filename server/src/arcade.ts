@@ -59,6 +59,35 @@ import {
   type RequestView,
   type RequestsResponse,
   addBadge,
+  COIN_MAX,
+  COINS_PER_BADGE,
+  isSlotBonus,
+  isSuit,
+  parsePresses,
+  roleOfStops,
+  SLOT_AUTO_STOP_MS,
+  SLOT_BET,
+  SLOT_MIN_INTERVAL_MS,
+  SLOT_NEAR,
+  SLOT_PAYOUT,
+  SLOT_PLAYING,
+  SLOT_ROLE_NAMES,
+  slotSpot,
+  sortBadges,
+  BANK_KEEP_MS,
+  newBankCode,
+  normalizeBankCode,
+  type SlotDepositResponse,
+  type SlotWithdrawResponse,
+  spinFlag,
+  stopAll,
+  drawSlot,
+  type SlotBonus,
+  type SlotExchangeResponse,
+  type SlotRole,
+  type SlotSpinResponse,
+  type SlotStateResponse,
+  type SlotStopResponse,
   applyCabinetInput,
   CRANE_NEAR,
   craneSpot,
@@ -190,10 +219,33 @@ export interface Hooks {
 /** 入室の停止の上限（分）= 7 日 */
 export const MAX_BAN_MINUTES = 7 * 24 * 60;
 
-/** バッジとピン止めの発言（メモリだけ。退店・切断から badgeKeepMs・再起動で消える） */
+/** v0.7.0：スロットの止めていない回（メモリだけ） */
+interface SlotSpin {
+  id: string;
+  machine: number;
+  flag: SlotRole | null;
+  at: number;
+  bet: number;
+}
+
+/** v0.7.0：スロットの状態（人ごと。どの台でも同じ。バッジ・コインと同じく消える） */
+interface SlotHold {
+  /** 持ち越しているボーナス（内部中） */
+  internal: SlotBonus | null;
+  /** 次の回はリプレイ（掛けずに回せる） */
+  replay: boolean;
+  spin: SlotSpin | null;
+  /** 最後に回した時刻 */
+  lastAt: number;
+}
+
+/** バッジとピン止めの発言（メモリだけ。退店・切断から badgeKeepMs・再起動で消える）。v0.7.0：スロットのコインも（DESIGN §17.1） */
 interface BadgeHold {
   badges: string;
   pinned: PinnedChat | null;
+  /** v0.7.0：スロットのコイン（0〜COIN_MAX） */
+  coins: number;
+  slot: SlotHold | null;
   /** 接続が切れた時刻（店内にいる間は null） */
   offSince: number | null;
 }
@@ -318,16 +370,22 @@ export class Arcade {
   private hold(keyHash: string): BadgeHold {
     let h = this.badges.get(keyHash);
     if (!h) {
-      h = { badges: '', pinned: null, offSince: this.online.has(keyHash) ? null : this.now() };
+      h = { badges: '', pinned: null, coins: 0, slot: null, offSince: this.online.has(keyHash) ? null : this.now() };
       this.badges.set(keyHash, h);
     }
     return h;
   }
 
-  /** バッジもピン止めも無ければ消す */
+  /** バッジもピン止めもコインも（スロットの持ち越しも）無ければ消す */
   private tidyHold(keyHash: string): void {
     const h = this.badges.get(keyHash);
-    if (h && !h.badges && !h.pinned) this.badges.delete(keyHash);
+    const slotBusy = !!h?.slot && (!!h.slot.internal || h.slot.replay || !!h.slot.spin);
+    if (h && !h.badges && !h.pinned && !h.coins && !slotBusy) this.badges.delete(keyHash);
+  }
+
+  /** その鍵のコイン（v0.7.0） */
+  coinsOf(keyHash: string | null): number {
+    return (keyHash && this.badges.get(keyHash)?.coins) || 0;
   }
 
   /** その鍵のバッジ（♠♡♦♧ の順） */
@@ -354,7 +412,7 @@ export class Arcade {
   }
 
   private profileOf(u: UserRow): Profile {
-    return { pid: u.pid, name: u.name, look: u.look, admin: u.admin_until > this.now(), badges: this.badgesOf(u.key_hash) };
+    return { pid: u.pid, name: u.name, look: u.look, admin: u.admin_until > this.now(), badges: this.badgesOf(u.key_hash), coins: this.coinsOf(u.key_hash) };
   }
 
   // ---------------------------------------------------------------- 来た人・入室
@@ -496,7 +554,7 @@ export class Arcade {
       room: p.room,
       version: this.cfg.version ?? '',
       reservations: this.reservationViews(),
-      you: u ? this.profileOf(u) : { pid: p.pid, name: p.name, look: p.look, admin: false, badges: this.badgesOf(p.keyHash) },
+      you: u ? this.profileOf(u) : { pid: p.pid, name: p.name, look: p.look, admin: false, badges: this.badgesOf(p.keyHash), coins: this.coinsOf(p.keyHash) },
       serverNow: this.now(),
       players: this.inRoom(p.room).map((x) => this.playerView(x)),
       cabinets: r.cabinets.map((c) => this.cabinetView(c)),
@@ -927,6 +985,7 @@ export class Arcade {
     this.store.pruneReservations(now, RESERVATION_KEEP_MS, RESERVATION_MAX_ROWS);
     this.expireChat();
     this.expireGameSessions();
+    this.store.pruneBank(now - BANK_KEEP_MS);
     this.syncSlot();
   }
 
@@ -1246,6 +1305,176 @@ export class Arcade {
     };
   }
 
+  // ---------------------------------------------------------------- スロットマシンとコイン（v0.7.0。DESIGN §17。コイン・持ち越しは人ごと・メモリだけ）
+
+  private requireSlot(rawId: unknown) {
+    const id = Number(rawId);
+    const spot = Number.isInteger(id) ? slotSpot(id) : undefined;
+    if (!spot) throw new ArcadeError(404, 'そのスロットはありません', 'not-found');
+    return spot;
+  }
+
+  private slotOf(h: BadgeHold): SlotHold {
+    if (!h.slot) h.slot = { internal: null, replay: false, spin: null, lastAt: 0 };
+    return h.slot;
+  }
+
+  /** 自分の情報（コイン・バッジ）を本人にだけ送り直す */
+  private sendYou(keyHash: string): void {
+    const u = this.store.getUser(keyHash);
+    if (u) this.hooks.send(keyHash, { type: 'you', you: this.profileOf(u) });
+  }
+
+  private spinView(h: BadgeHold, sp: SlotSpin): SlotSpinResponse {
+    return { spinId: sp.id, flag: sp.flag, internal: h.slot?.internal ?? null, coins: h.coins, bet: sp.bet };
+  }
+
+  /** 押されないまま SLOT_AUTO_STOP_MS（＋10 秒の余裕）たった回は、押した位置 0（左・中・右の順）で止めたことにする（クライアントは 30 秒でその位置で自動で止める） */
+  private expireSpin(keyHash: string, h: BadgeHold): void {
+    const sp = h.slot?.spin;
+    if (sp && this.now() - sp.at > SLOT_AUTO_STOP_MS + 10_000)
+      this.finishSpin(keyHash, h, sp, [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]);
+  }
+
+  /** スロットの窓を開いたとき：コイン・内部中か・リプレイ・止めていない回（再読み込みしても続きを止められる） */
+  slotState(keyHash: string | null, rawId: unknown): SlotStateResponse {
+    const k = this.requireKey(keyHash);
+    this.requireSlot(rawId);
+    const h = this.badges.get(k);
+    if (h) this.expireSpin(k, h);
+    const sl = h?.slot ?? null;
+    return {
+      coins: h?.coins ?? 0,
+      badges: this.badgesOf(k),
+      bonus: sl?.internal ?? null,
+      replay: !!sl?.replay,
+      pending: h && sl?.spin ? this.spinView(h, sl.spin) : null,
+      nextAt: (sl?.lastAt ?? 0) + SLOT_MIN_INTERVAL_MS,
+      serverNow: this.now(),
+    };
+  }
+
+  /** レバー：店内・台から 2 マス以内・コイン 3 枚（リプレイなら 0）。内部抽選して、この回に揃えられる役を返す */
+  slotSpin(keyHash: string | null, rawId: unknown): SlotSpinResponse {
+    const p = this.requireOnline(keyHash);
+    const spot = this.requireSlot(rawId);
+    if (cabinetDistance(this.tileOf(p), spot) > SLOT_NEAR) throw new ArcadeError(409, 'スロットの近く（2 マス以内）まで行ってから回してください', 'too-far');
+    const h = this.hold(p.keyHash);
+    this.expireSpin(p.keyHash, h);
+    const sl = this.slotOf(h);
+    if (sl.spin) throw new ArcadeError(409, '前の回のリールがまだ回っています（止めてから回してください）', 'spinning');
+    const now = this.now();
+    // 早すぎる連打（クライアントは 1.5 秒待たせる。時計のずれの分だけ少し甘く）
+    if (now - sl.lastAt < SLOT_MIN_INTERVAL_MS - 150) throw new ArcadeError(429, 'リールを回す間隔が短すぎます', 'too-soon');
+    const bet = sl.replay ? 0 : SLOT_BET;
+    if (h.coins < bet) {
+      this.tidyHold(p.keyHash);
+      throw new ArcadeError(409, `コインが足りません（1 回 ${SLOT_BET} 枚。クレーンゲームで取ったマークを両替できます）`, 'no-coins');
+    }
+    h.coins -= bet;
+    sl.replay = false;
+    sl.lastAt = now;
+    // 内部抽選（推測できない乱数。テストでは cfg.rng）
+    const r = this.cfg.rng ? this.cfg.rng() : crypto.randomBytes(4).readUInt32LE(0) / 2 ** 32;
+    const d = drawSlot(r, sl.internal, this.cfg.slotOdds);
+    if (d.bonus) sl.internal = d.bonus;
+    const sp: SlotSpin = { id: crypto.randomBytes(12).toString('base64url'), machine: spot.id, flag: spinFlag(d.small, sl.internal), at: now, bet };
+    sl.spin = sp;
+    if (bet) this.sendYou(p.keyHash);
+    return this.spinView(h, sp);
+  }
+
+  /** 3 本止めた：押した順と押した位置から、同じ stopReel で止まる位置を計算し直して配当を決める */
+  slotStop(keyHash: string | null, rawId: unknown, body: unknown): SlotStopResponse {
+    const k = this.requireKey(keyHash);
+    this.requireSlot(rawId);
+    const b = (body && typeof body === 'object' ? body : {}) as { spinId?: unknown; presses?: unknown };
+    const h = this.badges.get(k);
+    const sp = h?.slot?.spin;
+    if (!h || !sp || typeof b.spinId !== 'string' || b.spinId !== sp.id) throw new ArcadeError(409, 'その回はもう終わっています', 'no-spin');
+    const presses = parsePresses(b.presses);
+    if (!presses) throw new ArcadeError(400, '押した位置が正しくありません', 'bad-input');
+    return this.finishSpin(k, h, sp, presses);
+  }
+
+  private finishSpin(keyHash: string, h: BadgeHold, sp: SlotSpin, presses: Array<[number, number]>): SlotStopResponse {
+    const sl = this.slotOf(h);
+    sl.spin = null;
+    const reels = stopAll(presses, sp.flag);
+    const win = roleOfStops(reels);
+    const payout = win ? SLOT_PAYOUT[win] : 0;
+    h.coins = Math.min(COIN_MAX, h.coins + payout);
+    if (win === 'replay') sl.replay = true;
+    if (win && isSlotBonus(win)) {
+      sl.internal = null;
+      const p = this.online.get(keyHash);
+      if (p) this.addChat(p.room, 'system', null, null, `🎰 ${p.name} さんがスロットで ${SLOT_ROLE_NAMES[win]}！（+${payout} 枚）`);
+    }
+    if (payout) this.sendYou(keyHash);
+    const res: SlotStopResponse = { reels, win, payout, coins: h.coins, bonus: sl.internal, replay: sl.replay };
+    this.tidyHold(keyHash);
+    return res;
+  }
+
+  /** 両替：クレーンゲームで取ったマーク 1 つをコイン COINS_PER_BADGE 枚に（そのマークはなくなる） */
+  slotExchange(keyHash: string | null, rawSuit: unknown): SlotExchangeResponse {
+    const p = this.requireOnline(keyHash);
+    if (!isSuit(rawSuit)) throw new ArcadeError(400, 'マークが正しくありません', 'bad-input');
+    const h = this.badges.get(p.keyHash);
+    if (!h || !h.badges.includes(rawSuit)) throw new ArcadeError(409, 'そのマークを持っていません', 'no-badge');
+    if (h.coins + COINS_PER_BADGE > COIN_MAX) throw new ArcadeError(409, `コインは ${COIN_MAX.toLocaleString('en-US')} 枚までです`, 'coin-max');
+    const list = [...h.badges];
+    list.splice(list.indexOf(rawSuit), 1);
+    h.badges = sortBadges(list.join(''));
+    h.coins += COINS_PER_BADGE;
+    // 名前の後ろのバッジが変わる
+    this.hooks.broadcast({ type: 'player', player: this.playerView(p) }, p.room);
+    this.sendYou(p.keyHash);
+    return { coins: h.coins, badges: h.badges };
+  }
+
+  /**
+   * 預け入れ（v0.7.0 の途中のユーザー指定）：手元のコインを全部預けて、アルファベット 4 文字のキーをもらう。
+   * キーは預けている最中のほかのキーと重ならない。誰が預けたかは持たない（キーを知っていれば誰でも引き出せる）
+   */
+  slotDeposit(keyHash: string | null): SlotDepositResponse {
+    const p = this.requireOnline(keyHash);
+    const h = this.badges.get(p.keyHash);
+    if (h?.slot?.spin) throw new ArcadeError(409, 'リールが回っている間は預けられません（止めてから）', 'spinning');
+    if (!h || h.coins <= 0) throw new ArcadeError(409, '預けるコインがありません', 'no-coins');
+    const now = this.now();
+    const since = now - BANK_KEEP_MS;
+    const rnd = this.cfg.rng ?? (() => crypto.randomBytes(4).readUInt32LE(0) / 2 ** 32);
+    let code = '';
+    for (let i = 0; i < 200 && (!code || this.store.bankHas(code, since)); i++) code = newBankCode(rnd);
+    if (!code || this.store.bankHas(code, since)) throw new ArcadeError(503, 'いまは預けられません。少し待ってからやり直してください', 'bank-full');
+    const deposited = h.coins;
+    this.store.addBank(code, deposited, now);
+    h.coins = 0;
+    this.tidyHold(p.keyHash);
+    this.sendYou(p.keyHash);
+    return { code, deposited, coins: 0, expiresAt: now + BANK_KEEP_MS };
+  }
+
+  /** 引き出し：キー（小文字・全角でも可）の分を手元に。キーは使い終わり（1 回だけ）。違うキーは bad-code（app.ts が間違いを数える） */
+  slotWithdraw(keyHash: string | null, rawCode: unknown): SlotWithdrawResponse {
+    const p = this.requireOnline(keyHash);
+    const code = normalizeBankCode(rawCode);
+    if (!code) throw new ArcadeError(400, 'キーはアルファベット 4 文字です', 'bad-input');
+    const coins = this.store.peekBank(code, this.now() - BANK_KEEP_MS);
+    if (coins === null) throw new ArcadeError(404, 'そのキーの預かりはありません（使い終わったキー・期限の過ぎたキーも使えません）', 'bad-code');
+    const h = this.hold(p.keyHash);
+    if (h.coins + coins > COIN_MAX) throw new ArcadeError(409, `手元のコインは ${COIN_MAX.toLocaleString('en-US')} 枚までです（手元を減らしてから引き出してください）`, 'coin-max');
+    if (!this.store.deleteBank(code)) throw new ArcadeError(404, 'そのキーの預かりはありません', 'bad-code');
+    h.coins += coins;
+    this.sendYou(p.keyHash);
+    return { withdrawn: coins, coins: h.coins };
+  }
+
   // ---------------------------------------------------------------- ポスター（DESIGN §9。店全体で 1 つ）
 
   private posterView(r: PosterRow): PosterView {
@@ -1428,7 +1657,8 @@ export class Arcade {
   /** ゲームの窓を開いた（game）・閉じた（null）。頭上の 🎮（WebSocket の play） */
   play(keyHash: string | null, raw: unknown): void {
     const p = this.requireOnline(keyHash);
-    const game = raw === null ? null : this.requireGame(raw);
+    // v0.7.0：スロットの窓は 'slot'（頭上に 🎰。観戦はできない）
+    const game = raw === null ? null : raw === SLOT_PLAYING ? SLOT_PLAYING : this.requireGame(raw);
     if (p.playing === game && !(game && p.stance)) return;
     // 窓を閉じた・別のゲームに替えた：見られていれば観戦は終わる
     if (p.playing && p.playing !== game) this.endStream(p.keyHash);
@@ -1631,7 +1861,7 @@ export class Arcade {
     const target = [...this.online.values()].find((x) => x.pid === rawPid);
     if (!target || target.room !== me.room) throw new ArcadeError(404, 'その人は同じ部屋にいません', 'not-found');
     if (target.keyHash === me.keyHash) throw new ArcadeError(400, '自分のプレイは見られません', 'self');
-    if (!target.playing) throw new ArcadeError(409, 'その人はいまゲームを遊んでいません', 'not-playing');
+    if (!target.playing || target.playing === SLOT_PLAYING) throw new ArcadeError(409, 'その人はいまゲームを遊んでいません', 'not-playing');
     if (this.noSpectate.has(target.keyHash)) throw new ArcadeError(403, `${target.name} さんは観戦を許可していません`, 'denied');
     if (this.spectating.get(me.keyHash) === target.keyHash) return;
     const n = this.viewerCount(target.keyHash);

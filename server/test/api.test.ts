@@ -510,7 +510,7 @@ describe('店内の BGM の曲（data/bgm/）', () => {
 
     const h = await harness('bgm', { basePath: '/arcade', bgmDir: dir });
     const meta = await h.call('GET', '/api/meta');
-    expect(meta.body.version).toBe('0.6.0');
+    expect(meta.body.version).toBe('0.7.0');
     expect(meta.body.bgm).toEqual({
       synth: false,
       files: [

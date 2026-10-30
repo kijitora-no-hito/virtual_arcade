@@ -21,9 +21,9 @@ export interface CabinetSpot {
 
 /**
  * note = コミュニケーションノートの机（DESIGN §12）、requestbox = 機能追加要望箱（DESIGN §13）、door = 予約部屋の扉・calendar = 予約カレンダー（v0.5.0。DESIGN §14）、
- * game = 遊べるゲームの筐体（v0.6.0。DESIGN §16。ランキングは床の立て看板をやめて壁のポスター rankingWall にした）
+ * game = 遊べるゲームの筐体（v0.6.0。DESIGN §16。ランキングは床の立て看板をやめて壁のポスター rankingWall にした）、slot = スロットマシン（v0.7.0。DESIGN §17）
  */
-export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar' | 'game';
+export type DecorType = 'bench' | 'plant' | 'vending' | 'crane' | 'note' | 'requestbox' | 'door' | 'calendar' | 'game' | 'slot';
 
 export interface Decor {
   type: DecorType;
@@ -31,7 +31,7 @@ export interface Decor {
   y: number;
   /** v0.6.0：game のゲーム（shared の GAMES の id。例 '2048'） */
   game?: string;
-  /** v0.6.0：game の画面の向き */
+  /** v0.6.0：game の画面の向き（v0.7.0：slot も） */
   face?: Face;
 }
 
@@ -67,7 +67,7 @@ export interface Floor extends FloorJson {
   passable: boolean[][];
 }
 
-const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar', 'game'];
+const DECOR_TYPES: DecorType[] = ['bench', 'plant', 'vending', 'crane', 'note', 'requestbox', 'door', 'calendar', 'game', 'slot'];
 
 /** ランキングのポスターに貼れるゲームの数 */
 export const RANKING_WALL_MAX = 4;
@@ -110,15 +110,16 @@ export const loadFloor = (j: FloorJson): Floor => {
       if (typeof d.game !== 'string' || !GAME_ID_RE.test(d.game)) throw new Error(`floor: ${d.type} (${d.x},${d.y}) の game が不正です`);
       if (d.face !== 'S' && d.face !== 'E') throw new Error(`floor: ${d.type} (${d.x},${d.y}) の face が不正です`);
     }
+    if (d.type === 'slot' && d.face !== 'S' && d.face !== 'E') throw new Error(`floor: ${d.type} (${d.x},${d.y}) の face が不正です`);
     block(d.x, d.y, d.type);
   }
   for (const c of j.cabinets) {
     const f = frontTile(c);
     if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: 筐体 ${c.id} の前のマスが通れません`);
   }
-  // v0.6.0：ゲームの筐体も前のマスが通れること
+  // v0.6.0：ゲームの筐体も前のマスが通れること（v0.7.0：スロットマシンも）
   for (const d of j.decor) {
-    if (d.type !== 'game') continue;
+    if (d.type !== 'game' && d.type !== 'slot') continue;
     const f = frontTile({ x: d.x, y: d.y, face: d.face ?? 'S' });
     if (!inBounds(j, f.x, f.y) || !passable[f.y][f.x]) throw new Error(`floor: ${d.type} (${d.x},${d.y}) の前のマスが通れません`);
   }

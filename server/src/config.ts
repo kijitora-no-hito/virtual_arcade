@@ -13,6 +13,8 @@ import {
   SPECTATE_DEFAULTS,
   type BadgeMode,
   type CraneOdds,
+  SLOT_ODDS,
+  type SlotRole,
 } from '@va/shared';
 import { ROOT } from './paths';
 
@@ -75,6 +77,14 @@ export interface Config {
     gameKey: RateRule;
     game: RateRule;
     gameFinishKey: RateRule;
+    /** v0.7.0：スロットの API 全体（鍵ごと）・レバー（鍵ごと） */
+    slotKey: RateRule;
+    slotSpinKey: RateRule;
+    /** v0.7.0：コインの預け入れ・引き出し（鍵ごと）と、引き出しのキーの間違い（鍵ごと / IP ごと / 全体） */
+    bankKey: RateRule;
+    bankWrongKey: RateRule;
+    bankWrong: RateRule;
+    bankWrongAll: RateRule;
   };
   /** サーバの版（welcome で返す。クライアントの版と違えば再読み込みを頼む） */
   version?: string;
@@ -109,6 +119,8 @@ export interface Config {
   now?: () => number;
   /** v0.6.0：ほかの人のプレイを見る（観戦。DESIGN §16.10） */
   spectate: SpectateConfig;
+  /** v0.7.0：スロットの内部抽選の確率（1/n の n。画面の確認用に SLOT_BIG_ODDS・SLOT_REG_ODDS で BIG・REG だけ変えられる） */
+  slotOdds?: Record<SlotRole, number>;
 }
 
 export interface SpectateConfig {
@@ -180,6 +192,12 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
       gameKey: { limit: 20, windowMs: 60 * 1000 },
       game: { limit: 60, windowMs: 60 * 1000 },
       gameFinishKey: { limit: 20, windowMs: 60 * 1000 },
+      slotKey: { limit: 150, windowMs: 60 * 1000 },
+      slotSpinKey: { limit: 60, windowMs: 60 * 1000 },
+      bankKey: { limit: 20, windowMs: 10 * 60 * 1000 },
+      bankWrongKey: { limit: 5, windowMs: 10 * 60 * 1000 },
+      bankWrong: { limit: 10, windowMs: 10 * 60 * 1000 },
+      bankWrongAll: { limit: 200, windowMs: 60 * 60 * 1000 },
     },
     craneCooldownMs: env.CRANE_COOLDOWN_SEC ? int(env.CRANE_COOLDOWN_SEC, 20, 1, 3600) * 1000 : DEFAULT_CRANE_COOLDOWN_MS,
     craneOdds: {
@@ -198,6 +216,11 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
     chatMinIntervalMs: 1000,
     emoteMinIntervalMs: 800,
     chatTtlMs: int(env.CHAT_TTL_HOURS, 24, 1, 24 * 365) * 60 * 60 * 1000,
+    slotOdds: {
+      ...SLOT_ODDS,
+      big: env.SLOT_BIG_ODDS ? int(env.SLOT_BIG_ODDS, 256, 2, 100000) : SLOT_ODDS.big,
+      reg: env.SLOT_REG_ODDS ? int(env.SLOT_REG_ODDS, 400, 2, 100000) : SLOT_ODDS.reg,
+    },
     spectate: {
       enabled: (env.SPECTATE ?? '').trim().toLowerCase() !== 'off',
       maxViewers: int(env.SPECTATE_MAX_VIEWERS, SPECTATE_DEFAULTS.maxViewers, 1, 50),

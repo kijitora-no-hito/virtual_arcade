@@ -3342,3 +3342,280 @@ input[type='datetime-local'] {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------- スロットマシンとコイン（v0.7.0。DESIGN §17） */
+.me-coins {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(255, 211, 77, 0.14);
+  color: #ffd34d;
+  font-weight: 800;
+  font-size: 13px;
+  white-space: nowrap;
+}
+@media (max-width: 1279px) {
+  .me-coins {
+    display: none;
+  }
+}
+.m-menu-coins {
+  display: block;
+  margin-top: 2px;
+  color: #ffd34d;
+  font-size: 14px;
+}
+.modal-back.side .modal.slot-modal {
+  width: 520px;
+  max-height: calc(100vh - 110px);
+}
+.slot-screen {
+  display: flex;
+  justify-content: center;
+  background: #05030f;
+  border-radius: 12px;
+  padding: 4px;
+}
+.slot-screen canvas {
+  display: block;
+  border-radius: 10px;
+}
+.slot-meters {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 8px 0 2px;
+}
+.slot-meter {
+  flex: 1;
+  max-width: 150px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #050208;
+  border: 1px solid #4a1a30;
+  font-family: Consolas, 'Courier New', monospace;
+}
+.slot-meter span {
+  font-size: 11px;
+  color: #ff8aa8;
+  letter-spacing: 0.06em;
+}
+.slot-meter b {
+  font-size: 20px;
+  color: #ff3d55;
+  text-shadow: 0 0 8px rgba(255, 45, 85, 0.6);
+}
+.slot-meter.win b {
+  color: #ffe14d;
+  text-shadow: 0 0 10px rgba(255, 225, 77, 0.8);
+}
+.slot-status {
+  min-height: 24px;
+  margin: 6px 2px 4px;
+  font-weight: 700;
+  color: #cffaff;
+  text-align: center;
+}
+.slot-status.lucky {
+  color: #ffe14d;
+}
+.slot-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  margin: 4px 0 10px;
+}
+.slot-lever,
+.slot-stop {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  font-weight: 900;
+}
+.slot-lever {
+  width: 96px;
+  height: 60px;
+  border-radius: 30px;
+  font-size: 16px;
+  background: radial-gradient(circle at 35% 30%, #ff6b8a, #a3173c);
+  border: 3px solid #ff9bb8;
+}
+.slot-stop {
+  width: 72px;
+  height: 60px;
+  border-radius: 50%;
+  font-size: 18px;
+  background: radial-gradient(circle at 35% 30%, #ffe27a, #b07a00);
+  border: 3px solid #ffe9a8;
+  color: #2a1600;
+}
+.slot-lever.active:not(:disabled),
+.slot-stop.active:not(:disabled) {
+  box-shadow: 0 0 16px rgba(255, 225, 77, 0.75);
+  animation: crane-blink 0.9s ease-in-out infinite;
+}
+.slot-lever:disabled,
+.slot-stop:disabled {
+  filter: grayscale(0.7) brightness(0.6);
+}
+.slot-lever:active:not(:disabled),
+.slot-stop:active:not(:disabled) {
+  transform: translateY(2px);
+}
+.slot-lower {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.slot-lower h3 {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+.slot-paytable ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.slot-paytable li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.slot-syms {
+  display: inline-flex;
+  min-width: 102px;
+  background: #fbf7ee;
+  border-radius: 4px;
+}
+.slot-pay b {
+  color: #cffaff;
+}
+.slot-pay b.bonus {
+  color: #ffe14d;
+}
+.slot-exchange p {
+  margin: 0 0 6px;
+}
+.slot-ex-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.slot-ex {
+  white-space: nowrap;
+}
+.slot-ex span {
+  font-weight: 900;
+  font-size: 15px;
+}
+.slot-ex sub {
+  font-size: 10px;
+}
+.slot-note {
+  margin: 10px 0 0;
+}
+/* スマホ：全画面のシート・大きなボタン */
+.layout-mobile .modal-back.side .modal.slot-modal {
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  border-width: 0;
+  padding: calc(8px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
+}
+.layout-mobile .slot-screen canvas {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 420 / 262;
+}
+.layout-mobile .slot-controls {
+  gap: 8px;
+}
+.layout-mobile .slot-lever {
+  width: 84px;
+  height: 72px;
+}
+.layout-mobile .slot-stop {
+  width: 72px;
+  height: 72px;
+  font-size: 20px;
+}
+.layout-mobile .slot-lower {
+  grid-template-columns: 1fr;
+}
+.layout-mobile .slot-note {
+  display: none;
+}
+
+/* コインの預かり（v0.7.0） */
+.slot-lower .coin-bank {
+  grid-column: 1 / -1;
+}
+.coin-bank h3 {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+.coin-bank p {
+  margin: 0 0 6px;
+}
+.bank-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+.bank-input {
+  width: 9em;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-weight: 800;
+}
+.bank-msg {
+  margin-top: 4px;
+  color: var(--green);
+}
+.bank-msg.error {
+  color: var(--red);
+}
+.bank-code {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 2px solid #ffd34d;
+  background: rgba(255, 211, 77, 0.08);
+}
+.bank-code-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+}
+.bank-code-text {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 34px;
+  letter-spacing: 0.3em;
+  color: #ffe14d;
+  user-select: all;
+}
+.bank-code-warn {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffb4c4;
+}
+.modal.bank-modal {
+  width: min(480px, calc(100vw - 32px));
+}
+.leave-actions {
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
