@@ -1,7 +1,7 @@
 // 本番用の tar.gz を作る: release/virtual-arcade-<version>.tar.gz（＋ .sha256）
 // 中身: server.js（Node の版を確かめて起動）・lib/app.js（サーバを esbuild で 1 ファイルに。店のレイアウトも中に入る）・
 //       public/（ビルド済みクライアント）・tools/hash-admin.mjs（管理者の合言葉のハッシュを作る）・
-//       deploy/（VPS の手順書・systemd・Apache）・data/bgm/（店内の BGM の ogg・bgm.json・README.md。元の mp3 は入れない）・package.json。DB は入れない
+//       deploy/（VPS の手順書・systemd・Apache）・data/bgm/（店内の BGM の ogg・bgm.json・README.md。元の mp3 は入れない）・package.json・LICENSE・README.md。DB は入れない
 // 本番の VPS では npm install も tsx も要らない（node:sqlite は Node の組み込み）。
 // 使い方: npm run package（先に npm run build を実行する）
 
@@ -93,6 +93,8 @@ copyDir(dist, path.join(stage, 'public'));
 fs.mkdirSync(path.join(stage, 'tools'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'scripts', 'hash-admin.mjs'), path.join(stage, 'tools', 'hash-admin.mjs'));
 copyDir(path.join(ROOT, 'deploy'), path.join(stage, 'deploy'));
+// ライセンス（MIT。配るときは許諾文を添える）と説明。同梱のゲームのライセンスは public/games/<ゲーム>/ にある
+for (const f of ['LICENSE', 'README.md']) fs.copyFileSync(path.join(ROOT, f), path.join(stage, f));
 // 店内の BGM：data/bgm/ の曲（tools/bgm/loop_bgm.py が作ったイントロ・本体の ogg）・一覧 bgm.json・説明 README.md だけ。
 // 元の mp3（bgm/）・確認用の WAV は入れない（魔王魂などの規約で曲単体の再配布は禁止。tar はサーバに置くためだけのもの）
 const bgmSrc = path.join(ROOT, 'data', 'bgm');
