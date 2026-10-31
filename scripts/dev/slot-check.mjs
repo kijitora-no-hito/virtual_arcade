@@ -1,7 +1,8 @@
 // スロットマシンとコイン（v0.7.0。DESIGN §17）の確認。Edge ヘッドレス（CDP）と API・WebSocket で：
-//   クレーンゲームでバッジを取る → スロット台をクリック（遠ければ歩いて窓が開く）→ 両替でコイン 10 → レバー（スペース）で回す・← ↓ → で止める
+//   クレーンゲームでバッジを取る → スロット台をクリック（遠ければ歩いて窓が開く）→ 両替でコイン 100 → レバー（スペース）で回す・← ↓ → で止める
 //   （店内の人は動かない）→ コインが増減する（窓・上のバー・サーバ）→ ボーナスの LUCKY ランプ → 7 を狙って BIG → チャットの案内 →
 //   頭上の 🎰 → API を直接たたいてのごまかし（コイン不足・遠い・二重の spin・早すぎる・ありえない押す位置・違う回）が断られる →
+//   2 人目がゲーム筐体（2048）を遊ぶ → 点数に応じたコインが増える → そのコインでスロットを回せる（v0.7.0 の途中のユーザー指定）→
 //   スマホ（390×844）でタップで開いて大きなボタンで回して止める
 //   node scripts/dev/slot-check.mjs <BASE の URL（例 http://127.0.0.1:8796/arcade）> [撮る先のフォルダ]
 // サーバは CRANE_COOLDOWN_SEC=1・CRANE_MAX_CHANCE=100・BADGE_MODE=stack・BADGE_STACK_MAX=9・SLOT_BIG_ODDS=4（ボーナスをすぐ出す。確認用）で起動しておく。
@@ -12,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
+import { Game2048, mulberry32 } from './lib2048.mjs';
 
 const [, , base, outDir] = process.argv;
 if (!base) {
@@ -209,10 +211,10 @@ await shot('slot_dialog_exchange_before.png');
 // ---- 両替
 const badgeBefore = await ev(`[...document.querySelectorAll('.me-button .badges span')].length`);
 await ev(`document.querySelector('.slot-ex:not(:disabled)').click()`);
-check(await waitFor(`Number((document.querySelector('.slot-coins')?.textContent ?? '').replace(/,/g, '')) === 10`, 4000), '両替でコイン 10 枚', `${await uiCoins()}`);
+check(await waitFor(`Number((document.querySelector('.slot-coins')?.textContent ?? '').replace(/,/g, '')) === 100`, 4000), '両替でコイン 100 枚（マーク 1 つ = 100 枚）', `${await uiCoins()}`);
 check(await waitFor(`[...document.querySelectorAll('.me-button .badges span')].length === ${badgeBefore - 1}`, 3000), '名前の後ろのバッジが 1 つ減る');
-check(await waitFor(`/10/.test(document.querySelector('.me-coins')?.textContent ?? '')`, 3000), '上のバーの自分の名前の近くにコイン', await ev(`document.querySelector('.me-coins')?.textContent ?? ''`));
-check((await call(keyA, 'GET', '/api/slot/1')).body?.coins === 10, 'サーバのコインも 10');
+check(await waitFor(`/100/.test(document.querySelector('.me-coins')?.textContent ?? '')`, 3000), '上のバーの自分の名前の近くにコイン', await ev(`document.querySelector('.me-coins')?.textContent ?? ''`));
+check((await call(keyA, 'GET', '/api/slot/1')).body?.coins === 100, 'サーバのコインも 100');
 await sleep(800);
 await shot('slot_dialog_exchange.png');
 // 残りのバッジもコインに（遊ぶ分）
@@ -340,6 +342,51 @@ await sleep(1600);
   const nob = await call(keyB, 'POST', '/api/slot/exchange', { suit: '♠' });
   check(nob.body?.code === 'no-badge', 'マークを持っていない人は両替できない', JSON.stringify(nob.body));
   check(!JSON.stringify(B.msgs).includes('"coins":' + (await uiCoins())) || (await uiCoins()) === 0, 'ほかの人のメッセージに自分のコインが載らない');
+
+  // ---- 2 人目がゲームを遊ぶ → コインが増える → スロットで使える（DESIGN §17.9）
+  B.send({ type: 'goto', x: 14, y: 5 });
+  await sleep(2500);
+  let gained = 0;
+  let total = 0;
+  for (let k = 0; k < 6 && !gained; k++) {
+    const gs = await call(keyB, 'POST', '/api/games/2048/start');
+    if (gs.status !== 200) {
+      check(false, '2 人目が 2048 を始める', JSON.stringify(gs.body));
+      break;
+    }
+    // 下・左・右・上の順に動く手（角に寄せる簡単な戦略）。ゲームオーバーまで
+    const g = new Game2048(mulberry32(gs.body.seed));
+    let mv = '';
+    while (!g.terminated && mv.length < 5000) {
+      const d = [2, 3, 1, 0].find((x) => {
+        const t = new Game2048(() => 0.5);
+        t.cells = g.cells.map((c) => [...c]);
+        return t.move(x);
+      });
+      if (d === undefined || !g.move(d)) break;
+      mv += d;
+    }
+    await sleep(mv.length * 42 + 300);
+    const gf = await call(keyB, 'POST', '/api/games/2048/finish', { session: gs.body.session, moves: mv });
+    const c = gf.body?.coins;
+    console.log(`（2 人目の 2048：${gf.body?.score} 点 → コイン ${JSON.stringify(c)}）`);
+    check(gf.status === 200 && !!c && (gf.body.score >= 2000) === (c.gained > 0), '2048 の記録にコインの結果が付く（2,000 点からもらえる）', JSON.stringify(c));
+    if (c?.gained) {
+      gained = c.gained;
+      total = c.total;
+    } else check(c?.reason === 'low' && c?.min === 2000, '点数が少ないときは 0 枚（理由と 2,000 点から）', JSON.stringify(c));
+  }
+  check(gained >= 6 && gained <= 60, '2 人目が 2048 を遊んでコインが増える（6〜60 枚）', `${gained} 枚・手元 ${total}`);
+  for (let t = 0; t < 30 && !B.msgs.some((m) => m.type === 'you' && m.you.coins === total); t++) await sleep(100);
+  check(B.msgs.some((m) => m.type === 'you' && m.you.coins === total), '2 人目にだけ you でコインが届く', `${total}`);
+  B.send({ type: 'goto', x: 19, y: 5 });
+  await sleep(2500);
+  const bs = await call(keyB, 'POST', '/api/slot/3/spin');
+  check(bs.status === 200 && bs.body?.bet === 3 && bs.body?.coins === total - 3, 'ゲームでもらったコインでスロットを回せる', JSON.stringify(bs.body));
+  if (bs.body?.spinId) {
+    const bt = await call(keyB, 'POST', '/api/slot/3/stop', { spinId: bs.body.spinId, presses: [[0, 0], [1, 0], [2, 0]] });
+    check(bt.status === 200, '2 人目が止める', JSON.stringify(bt.body?.code ?? ''));
+  }
 }
 // 窓の表示を合わせる（API で回した分）
 await key('Escape');

@@ -275,6 +275,53 @@ await shot('game_pc_over.png');
 await ev(`${FDOC}.querySelector('.retry-button').click()`);
 check(await waitFor(`__vaGame.gen() > ${gen1} && !${FDOC}.querySelector('.game-message.game-over')`, 5000), 'Try again で新しいゲーム（新しい種）', `gen ${gen1} → ${await ev('__vaGame.gen()')}`);
 
+// ---- v0.7.0：点数に応じてスロットのコイン（DESIGN §17.9。結果の帯に「+n コイン」・上のバーの 🪙・2,000 点より少なければ「もう少しで 6 枚」）
+{
+  const coinText = () => ev(`document.querySelector('.game-result .game-coins')?.textContent ?? ''`);
+  const meCoins = async () => Number(String((await ev(`document.querySelector('.me-coins')?.textContent ?? ''`)) || '').replace(/[^0-9]/g, '')) || 0;
+  check(/点数に応じてスロットのコイン（6〜60 枚）/.test(await ev(`document.querySelector('.game-modal .game-note')?.textContent ?? ''`)), '窓の下の説明に「点数に応じてスロットのコイン（6〜60 枚）」');
+  const lowTxt = await coinText();
+  check(score2 >= 2000 ? /\+\d+ コイン（スロット用）/.test(lowTxt) : /もう少しで 6 枚（2,000 点から）/.test(lowTxt), '前のゲームの結果の帯にコインの行（2,000 点より少なければ「もう少しで 6 枚」）', `${score2} 点：${lowTxt}`);
+  const expected = (sc) => (sc < 2000 ? 0 : Math.round(6 + (54 * Math.min(1, Math.log(sc / 2000) / Math.log(10))) ));
+  let got = 0;
+  for (let gi = 0; gi < 5 && !got; gi++) {
+    // 角に寄せる簡単な戦略：下 → 左 → 右 → 上 の順に、盤が動く（__vaGame.count() が増える）まで押す
+    for (let i = 0; i < 4000; i++) {
+      if (await ev(`!!${FDOC}?.querySelector('.game-message.game-over')`)) break;
+      const c0 = await ev('__vaGame.count()');
+      let moved = false;
+      for (const d of ['down', 'left', 'right', 'up']) {
+        await key(d);
+        for (let w = 0; w < 6 && !moved; w++) {
+          await sleep(25);
+          moved = (await ev('__vaGame.count()')) > c0;
+        }
+        if (moved) break;
+      }
+      if (!moved) await sleep(300);
+    }
+    const sc = await frameScore();
+    await waitFor(`/記録しました/.test(document.querySelector('.game-result')?.textContent ?? '') && !!document.querySelector('.game-result .game-coins')`, 6000);
+    const txt = await coinText();
+    console.log(`（2048 を角に寄せて遊んだ：${sc} 点 → ${txt}）`);
+    if (sc >= 2000) {
+      got = expected(sc);
+      check(txt.includes(`+${got} コイン（スロット用）`), '結果の帯に「+n コイン（スロット用）」（n = 点数の式どおり）', `${sc} 点・${txt}・式 ${got}`);
+      check(await ev(`!!document.querySelector('.game-result .game-coins.got')`), '+n コインの印は目立つ色（got）');
+      check(await waitFor(`Number(String(document.querySelector('.me-coins')?.textContent ?? '').replace(/[^0-9]/g, '')) >= ${got}`, 3000), '上のバーの 🪙 がその場で増える', `${await meCoins()}`);
+      const srv = (await call(keyA, 'GET', '/api/slot/1')).body?.coins;
+      check(srv === (await meCoins()), 'サーバの手元のコイン = 上のバーの 🪙', `${srv} / ${await meCoins()}`);
+      await sleep(500);
+      await shot('game_pc_coins.png');
+    } else {
+      check(/もう少しで 6 枚/.test(txt), '2,000 点より少なければ「もう少しで 6 枚」', `${sc} 点・${txt}`);
+      await ev(`${FDOC}.querySelector('.retry-button').click()`);
+      await sleep(800);
+    }
+  }
+  check(got > 0, '2048 を遊んでコインがもらえた');
+}
+
 // ---- ランキングの窓
 await ev(`[...document.querySelectorAll('.game-modal button')].find((b) => b.textContent.includes('ランキング')).click()`);
 check(await waitFor(`document.querySelectorAll('.ranking-modal .rank-table tbody tr:not(.rank-gap)').length >= 1 && !document.querySelector('.ranking-modal .rank-empty')`, 5000), 'ランキングの窓（総合）に記録が並ぶ');
@@ -314,6 +361,7 @@ while (!g.terminated && movesB.length < 3000) {
 await sleep(movesB.length * 42 + 500);
 const finB = await call(keyB, 'POST', '/api/games/2048/finish', { session: st.body.session, moves: movesB });
 check(finB.status === 200 && finB.body.score === g.score, '2 人目の記録（サーバの点数 = 手元でなぞった点数）', `${finB.body?.score} / ${g.score}`);
+check(!!finB.body?.coins && (g.score >= 2000) === (finB.body.coins.gained > 0), '2 人目の記録にもコインの結果（2,000 点から）', JSON.stringify(finB.body?.coins));
 const rk2 = await call(keyA, 'GET', '/api/games/2048/ranking?period=all');
 const ia = rk2.body.entries.findIndex((e) => e.name === nameA);
 const ib = rk2.body.entries.findIndex((e) => e.name === nameB);
@@ -458,6 +506,7 @@ const cScore2 = await cScore();
 check(await waitFor(`/記録しました/.test(document.querySelector('.game-result')?.textContent ?? '')`, 6000), 'ゲームオーバーで記録され、結果の帯が出る', await ev(`document.querySelector('.game-result')?.textContent ?? ''`));
 const cRes = await ev(`document.querySelector('.game-result')?.textContent ?? ''`);
 check(cRes.includes(cScore2.toLocaleString('en-US')), '結果の帯の点数 = iframe の点数（最後のピースの ↓ の点も）', `${cScore2} / ${cRes}`);
+check(/🪙 (\+\d+ コイン（スロット用）|コインなし：もう少しで 6 枚（3,000 点から）)/.test(cRes), 'Columns の結果の帯にもコインの行（3,000 点から）', cRes);
 // Reset → 次の Play は練習の設定（Colors 4）
 await clickIn('#reset');
 await sleep(400);
@@ -748,6 +797,7 @@ if (run('hextris') || run('spectate')) {
   check(await waitFor(`/記録しました/.test(document.querySelector('.game-result')?.textContent ?? '')`, 6000), 'ゲームオーバーで記録され、結果の帯が出る', await ev(`document.querySelector('.game-result')?.textContent ?? ''`));
   const hRes = await ev(`document.querySelector('.game-result')?.textContent ?? ''`);
   check(hRes.includes(hScore2.toLocaleString('en-US')), '結果の帯の点数 = iframe の点数', `${hScore2} / ${hRes}`);
+  check(/🪙 (\+\d+ コイン（スロット用）|コインなし：もう少しで 6 枚)/.test(hRes), 'Hextris の結果の帯にもコインの行', hRes);
   await sleep(1200);
   await shot('game_pc_hextris_over.png');
   const hgen = await ev('__vaGame.gen()');

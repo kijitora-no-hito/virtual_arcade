@@ -1128,6 +1128,21 @@ textarea:focus {
   background: #6b1a2c;
   box-shadow: none;
 }
+/* v0.7.0：ゲームでもらえたスロットのコイン（結果の帯の右・狭ければ次の行） */
+.game-result .game-coins {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.92em;
+  font-weight: 700;
+  color: #4a3a00;
+  background: rgba(255, 255, 255, 0.55);
+}
+.game-result .game-coins.got {
+  color: #fff;
+  background: #a2640a;
+}
 .game-frame {
   flex: 1;
   display: flex;

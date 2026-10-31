@@ -1,5 +1,7 @@
 import {
   formatScore,
+  GAME_COIN_MAX,
+  GAME_COIN_MIN,
   GAME_MAX_MOVES,
   COLUMNS_MAX_PIECES,
   HEXTRIS_MAX_CLEARS,
@@ -54,6 +56,27 @@ const resultText = (r: GameFinishResponse): string => {
     : `記録しました：${formatScore(r.score)} 点（自己ベストは ${formatScore(r.best)} 点・${ranks}）`;
 };
 
+/** v0.7.0：もらえたスロットのコインの文（DESIGN §17.9）。無ければ null */
+const coinText = (r: GameFinishResponse): string | null => {
+  const c = r.coins;
+  if (!c) return null;
+  if (c.gained > 0) return `🪙 +${c.gained} コイン（スロット用）${c.capped ? '・1 時間の上限で減りました' : c.reason === 'full' ? '・手元のコインが上限です' : ''}`;
+  switch (c.reason) {
+    case 'low':
+      return `🪙 コインなし：もう少しで ${GAME_COIN_MIN} 枚（${formatScore(c.min ?? 0)} 点から）`;
+    case 'practice':
+      return '🪙 練習はコインなし';
+    case 'hour':
+      return '🪙 コインなし：今は 1 時間の上限です（しばらくするとまたもらえます）';
+    case 'full':
+      return '🪙 コインなし：手元のコインが上限です';
+    default:
+      return null;
+  }
+};
+/** 記録の結果とコインを 1 行に（閉じたときの toast） */
+const resultLine = (r: GameFinishResponse): string => [resultText(r), coinText(r)].filter(Boolean).join('　');
+
 const finishError = (e: unknown): string => (e instanceof ApiError && e.code === 'no-session' ? NO_SESSION_TEXT : errorText(e));
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
@@ -88,7 +111,7 @@ export const GameDialog = ({
   const pendingStart = useRef<Record<string, unknown> | null>(null);
   /** New Game の処理中（スマホは click と touchend の両方で 2 回来る） */
   const restarting = useRef(false);
-  const [result, setResult] = useState<{ text: string; error: boolean } | null>(null);
+  const [result, setResult] = useState<{ text: string; error: boolean; coins?: string | null } | null>(null);
   const [practice, setPractice] = useState<string | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   /** 観戦：見ている人数・許可しているか */
@@ -148,12 +171,12 @@ export const GameDialog = ({
     const wasPractice = !!sess.current?.practice;
     const body = takeFinish();
     if (!body) {
-      if (wasPractice) setResult({ text: '練習の設定なので記録しませんでした', error: false });
+      if (wasPractice) setResult({ text: '練習の設定なので記録しませんでした', error: false, coins: '🪙 練習はコインなし' });
       return;
     }
     try {
       const r = await api<GameFinishResponse>('POST', `/api/games/${game}/finish`, body);
-      setResult({ text: resultText(r), error: false });
+      setResult({ text: resultText(r), error: false, coins: coinText(r) });
     } catch (e) {
       setResult({ text: finishError(e), error: true });
     }
@@ -174,7 +197,7 @@ export const GameDialog = ({
       })
         .then(async (res) => {
           const j = await res.json().catch(() => null);
-          if (res.ok) client.showToast(`🎮 ${resultText(j as GameFinishResponse)}`);
+          if (res.ok) client.showToast(`🎮 ${resultLine(j as GameFinishResponse)}`);
           else client.showToast(j?.code === 'no-session' ? NO_SESSION_TEXT : (j?.error ?? `記録できませんでした（${res.status}）`));
         })
         .catch(() => {
@@ -413,7 +436,12 @@ export const GameDialog = ({
             </button>
           </div>
         </div>
-        {result && <div className={`game-result ${result.error ? 'error' : ''}`}>{result.text}</div>}
+        {result && (
+          <div className={`game-result ${result.error ? 'error' : ''}`}>
+            {result.text}
+            {result.coins && <span className={`game-coins ${result.coins.startsWith('🪙 +') ? 'got' : ''}`}>{result.coins}</span>}
+          </div>
+        )}
         {practice && <div className="game-practice">この設定（{practice}）は練習です。記録されません（ランキングは Standard・Colors 5・Height 0）</div>}
         <div className="game-frame">
           <iframe
@@ -432,6 +460,7 @@ export const GameDialog = ({
           />
         </div>
         <p className="muted small game-note">
+          {`点数に応じてスロットのコイン（${GAME_COIN_MIN}〜${GAME_COIN_MAX} 枚）がもらえます${columns ? '（練習の設定はなし）' : ''}。`}
           {columns
             ? 'Play で始まります（Options の Standard・Colors 5・Height 0 がランキングの対象。Level は自由）。途中でやめても、そこまでの点数を記録します。点数はサーバが置いたピースをなぞり直して決めます。'
             : hextris

@@ -20,6 +20,9 @@
   機械割は完璧な目押しで理論値 102.48%・でたらめに押して約 87%（100 万回 × 3 のシミュレーション。DESIGN §17.3）。コインはバッジと同じくメモリだけ、預けると DB の `coin_bank`（4 文字のキー・1 回だけ・180 日）。
   DB は新しい表 `coin_bank` を足すだけ（0.6.x へそのまま戻せる）。下の「0.7.0 で決めたこと」・「確認したこと（v0.7.0）」。
   同じ 0.7.0 で、ユーザー「一人が登録できる配信を4つまでに増やします」→ 配信用の筐体は **1 人 4 台まで**（`CABINET_MAX_PER_USER`。部屋ごと。DESIGN §18。別のコミット）。
+  さらに同じ 0.7.0（2026-10-31。未公開・ユーザー未確認。版は上げていない）で、ユーザー「ゲームをプレイしたらスロットマシン用のコインが手にはいるようにしてください。6枚くらい。良いスコアだったら最大60枚くらい。クレーンゲームの交換も100枚にしてください。」→
+  **ゲームの finish で記録された点数からコイン**（`round(6 + 54 × t)`、sMin 未満 0 枚・sMax 以上 60 枚。2048 2,000〜20,000・Columns 3,000〜50,000・Hextris 800〜20,000。Columns の練習は 0 枚・鍵ごと 1 時間 300 枚 `GAME_COINS_PER_HOUR`）と
+  **マークの両替を 1 つ 100 枚**（DESIGN §17.9・表 S10〜S12。sMin・sMax の根拠は自動で遊ばせたシミュレーション `scripts/dev/coin-sim.ts`・`hextris-sim.mjs`）。
   **v0.6.0**（2026-10-30。**未公開・ユーザー未確認**。DESIGN の末尾の表 G1〜G8 が叩き台）：ユーザー「virtual_arcadeでゲームが出来るようにしてください。まず以下をアーケード筐体から遊べるようにしてください。
   スコアランキングを店内のポスターで掲示されるようにしてください。https://github.com/gabrielecirulli/2048」・途中で「エモーションにベガ立ちを追加してください」。
   元の 2048（MIT）を `client/public/games/2048/` に同梱して iframe で動かし、サーバが種と手順をなぞり直して点数を決める（`shared/src/game2048.ts`。元の JS と一致することを vm で確かめるテストあり）。
@@ -98,7 +101,8 @@
      両替（窓・上のバー・サーバのコイン）→ スペースで回して ← ↓ → で止める（店内の人は動かない）→ わざと外して LUCKY ランプ → 7 を狙って BIG・チャットの案内 → API のごまかし（二重の spin・ありえない押す位置・違う回・2 度止める・
      早すぎる・遠い・コイン不足・マークなしの両替）→ 預ける（キー 4 文字）→ 違うキー → 小文字で引き出す → 1 回だけ → 退店の確認の窓で［預けてから退店］→ 入り直して引き出す → スマホ 390×844 でタップで開いて回す・メニュー）。
      `#dev` の `__va.slot(i)`（台の位置。手前から）・`__va.coins()`、窓を開いている間の `__vaSlot`（`state()`・`lever()`・`press(reel)`・`aim(reels?)` = 当たった役の図柄を引き込める瞬間に押す）。
-     機械割は `npx tsx scripts/dev/slot-sim.ts [回数] [種]`。header-check に `COINS=99999`（上のバーにコインを出した形。`__va.fakeCoins(n)` は表示だけ変える）。
+     機械割は `npx tsx scripts/dev/slot-sim.ts [回数] [種]`。2026-10-31 から slot-check の 2 人目が 2048 を遊んでコインをもらいスロットで回す・game-check に結果の帯の「+n コイン」と上のバーの 🪙（角に寄せて 2,000 点を超えるまで遊ぶ）。
+     ゲームのコインの目安は `npx tsx scripts/dev/coin-sim.ts [ゲームの数] [種]`（`ONLY=2048|columns`）・`node scripts/dev/hextris-sim.mjs [ゲームの数] [速さ]`（`STYLES=random,simple,miss40`。Edge は `--disable-extensions`）。header-check に `COINS=99999`（上のバーにコインを出した形。`__va.fakeCoins(n)` は表示だけ変える）。
   8. **v0.5.1（PC のバーの重なり）**：`node scripts/dev/header-check.mjs <BASE の URL> <状態ファイル> <管理者の合言葉> [撮る先] [頭]`。状態ファイルが無ければ API で主催者（名前 20 文字）・ふつうの人・管理者と
      今の枠から 5 時間の予約（部屋名 26 文字）を作る。大きさ 13 通り（2560〜900・拡大 125%/150% は CSS の幅と DPR で）× 役割 4 × 部屋 2 で、上のバー・予約部屋の帯・下のバーの項目の
      重なり・はみ出し・右の欄の下へのもぐり・省略に title があるか・「エモーション」が 1 行かを見る。`CASES=quick`（3 通りの大きさ）・`ROLES=visitor,host,…`。
@@ -127,7 +131,7 @@
 | `server/` | Express（REST）+ `ws`（WebSocket `{BASE_PATH}/ws`）+ SQLite。開発は `tsx`、本番は esbuild で 1 ファイル（`npm run package`） |
 | `client/` | React + Vite + TS。店内は Canvas 2D（ライブラリなし）。**相対パスでビルド**（`base: './'`）。`client/public/games/2048/`（v0.6.0）は元の 2048（MIT）、`client/public/games/columns/` は元の columns（MIT。店では「Columns like game」。字体 Laila は OFL）、`client/public/games/hextris/` は元の Hextris（**GPLv3。このフォルダだけ**。同梱の部品は `THIRD_PARTY.md`）。どれも素の JS で Vite がそのまま dist に写す。変えた所は各フォルダの `CHANGES.md`（columns の元のファイルは CRLF、2048・Hextris は LF） |
 | `deploy/` | サーバに置く手順書 `INSTRUCTIONS.md`（一般的な書き方。example.com・`/arcade/`）・`virtual-arcade.service`・`apache-arcade.inc`（tar にも入る） |
-| `scripts/` | `dev/slot-check.mjs`・`dev/slot-sim.ts`（v0.7.0。スロットとコインの確認・機械割のシミュレーション）・`package.mjs`（release の tar.gz）・`hash-admin.mjs`（管理者の合言葉のハッシュ。tar の `tools/` にも入る）・`dev/shot.mjs`（Edge ヘッドレスで撮る。スマホの大きさ・タップも）・`dev/scene.mjs`（確認用に人を入れる）・`dev/bgm-check.mjs`（店内の BGM の確認）・`dev/touch-check.mjs`・`dev/reach-check.mjs`・`dev/note-check.mjs`（v0.4.0。スマホの指の操作・店のどこへでも行けるか・ノート）・`dev/keyboard-check.mjs`（v0.4.1。キーボードが出ても欄のフォーカス・縦横が変わらないか）・`dev/header-check.mjs`（v0.5.1。PC の上のバー・帯・下のバーの重なり）・`dev/game-check.mjs`・`dev/lib2048.mjs`（v0.6.0。ゲーム筐体と 2048・ランキング） |
+| `scripts/` | `dev/slot-check.mjs`・`dev/slot-sim.ts`（v0.7.0。スロットとコインの確認・機械割のシミュレーション）・`dev/coin-sim.ts`・`dev/hextris-sim.mjs`（v0.7.0。ゲームでもらえるコインの sMin・sMax を決めた自動で遊ばせるシミュレーション）・`package.mjs`（release の tar.gz）・`hash-admin.mjs`（管理者の合言葉のハッシュ。tar の `tools/` にも入る）・`dev/shot.mjs`（Edge ヘッドレスで撮る。スマホの大きさ・タップも）・`dev/scene.mjs`（確認用に人を入れる）・`dev/bgm-check.mjs`（店内の BGM の確認）・`dev/touch-check.mjs`・`dev/reach-check.mjs`・`dev/note-check.mjs`（v0.4.0。スマホの指の操作・店のどこへでも行けるか・ノート）・`dev/keyboard-check.mjs`（v0.4.1。キーボードが出ても欄のフォーカス・縦横が変わらないか）・`dev/header-check.mjs`（v0.5.1。PC の上のバー・帯・下のバーの重なり）・`dev/game-check.mjs`・`dev/lib2048.mjs`（v0.6.0。ゲーム筐体と 2048・ランキング） |
 | `data/` | 開発用の DB `virtual_arcade.db`（git 管理外）・`data/bgm/`（店内の BGM の曲：音声ファイルと一覧 `bgm.json` は git 管理外・tar に入る。git に入るのは `README.md` と例 `bgm.example.json`） |
 | `bgm/` | 元の mp3（`tools/bgm/` の入力。**git にも tar にも入れない**）・`_loop_preview/`（確認用の WAV） |
 | `tools/bgm/` | `loop_bgm.py`（ループ点を探してイントロ・本体の ogg を作る）・`loudness.py`（音量をそろえる）・`manifest.py`（bgm.json）・`loops.json`（ループ点。曲の名前が入るので git 管理外） |
@@ -165,7 +169,8 @@
   `frameBytes`（JPEG / WebP の data URL と大きさ）・`cleanSpectateInfo`・`SPECTATE_2048_SYNC_MAX`（45,000 字）/ `SPECTATE_2048_MOVES_MAX`（2,000 字）・`SPEC_MOVES_RE`
 - `slot.ts`（v0.7.0。DESIGN §17）スロット：配列 `REEL_CODES` / `REELS`・`SLOT_ODDS` / `SLOT_PAYOUT`・`drawSlot`（内部抽選。内部中はボーナスを抽選しない）・`spinFlag`（小役が先）・
   `stopReel`（すべり）・`stopAll`・`lineRole` / `roleOfStops`・`parsePresses`・`slotSpots`（floor.json の decor の `slot`）・`simulateSlot`（機械割）・
-  コインの決まり（`COIN_MAX` 99,999・`COINS_PER_BADGE` 10）・預かりのキー（`BANK_CODE_CHARS` = I・O を除く 24 文字・`newBankCode`・`normalizeBankCode`・`BANK_KEEP_MS` 180 日）
+  コインの決まり（`COIN_MAX` 99,999・`COINS_PER_BADGE` 100（最初は 10））・預かりのキー（`BANK_CODE_CHARS` = I・O を除く 24 文字・`newBankCode`・`normalizeBankCode`・`BANK_KEEP_MS` 180 日）
+- `gameCoins.ts`（v0.7.0。DESIGN §17.9）ゲームでもらえるコイン：`gameCoins(game, score)`・`GAME_COIN_RANGE`（ゲームごとの sMin・sMax）・`GAME_COIN_MIN` 6 / `GAME_COIN_MAX` 60・`DEFAULT_GAME_COINS_PER_HOUR` 300。`protocol.ts` の `GameFinishResponse.coins`（`GameCoinsResult`）
 - `floor.ts` の decor に `game`（`game`・`face`。前のマスが通れること）と `rankingWall`（ランキングのポスターの壁の範囲と games。入口・大画面・掲示板と重ならない。床の `ranking` は 2026-10-30 にやめた）・`looks.ts` に `STANCES`（v0.6.0。ベガ立ち）
 
 ### server のファイル
@@ -197,6 +202,8 @@
 - v0.7.0：`arcade.ts` の `BadgeHold` に `coins` と `slot`（持ち越しのボーナス・リプレイ・止めていない回・最後に回した時刻。人ごと・メモリだけ）・`slotState` / `slotSpin` / `slotStop`（`finishSpin`）/ `slotExchange` /
   `slotDeposit` / `slotWithdraw`・`sendYou`（コインは `Profile.coins` で本人にだけ）。`play` に `'slot'`（🎰。観戦は断る）。`db.ts` に `coin_bank` の表と `bankHas` / `addBank` / `peekBank` / `deleteBank` / `pruneBank`（sweep で 180 日）。
   `app.ts` に `/api/slot/…`（キーの間違いだけを `bankWrongKey` / `bankWrong` / `bankWrongAll` で数える）。`config.ts` に `slotOdds`（`SLOT_BIG_ODDS` / `SLOT_REG_ODDS`）と回数制限。テスト `server/test/v07.test.ts`・`shared/test/slot.test.ts`。
+  ゲームのコイン（2026-10-31）：`arcade.ts` の `awardGameCoins`（finish から。練習・点数 0・sMin 未満・1 時間の上限・財布の上限）・`gameCoinLog`（鍵 → [時刻, 枚数]。メモリ・sweep で 1 時間より古いものを消す）、`config.ts` の `gameCoinsPerHour`（`GAME_COINS_PER_HOUR`）。
+  テスト `server/test/v07coins.test.ts`・`shared/test/gameCoins.test.ts`。
 - テスト：`test/harness.ts`（テスト用のサーバ・WebSocket の道具。v0.3.0 で api.test.ts から分けた。v0.5.0 から hello に proto: 2、`connect(key, path, room)`）・`api.test.ts`・`v03.test.ts`（クレーンゲーム・バッジ・ポスター・ピン止め）・`v04.test.ts`（ノート・要望）・
   `v05.test.ts`（予約・合言葉・部屋ごと・時間の終わり。時計は `clock.t` で進めて `syncSlot()`）・`unit.test.ts`。shared は `test/rooms.test.ts`（v0.5.0）。
   v0.6.0：`server/test/v06.test.ts`（ゲームの API・WebSocket・DB・ベガ立ち。種は `Config.rng` で決める）・`server/test/game2048-vm.test.ts`（同梱した元の JS を `node:vm` で動かし、
@@ -238,7 +245,7 @@
   `client.ts` に `spectators`・`onSpec`。`render.ts` の `GAME_LOOKS.hextris`（`drawScreenHextris`・上の看板を高く `topperLift`）・頭上の名札に 👀n・当たり判定 `playTags`。
   2048 の `va_bridge.js` に「見るだけ」（?view=1）。
 - v0.7.0：`components/SlotDialog.tsx`（スロットの窓：レバー・止めるボタンは pointerdown・キー・ウェイト・30 秒で自動で止める・配当表・両替・`__vaSlot`）・`game/slotGame.ts`（リールの動きと Canvas の絵柄・LUCKY ランプ）・
-  `components/CoinBank.tsx`（預ける・引き出す `CoinBank`・スマホのメニューから開く `CoinBankDialog`・退店の確認 `LeaveDialog`）。`render.ts` にスロット台（`drawSlotCabinet`・当たり判定 `slots`・札・頭上の 🎰）。
+  `components/CoinBank.tsx`（預ける・引き出す `CoinBank`・スマホのメニューから開く `CoinBankDialog`・退店の確認 `LeaveDialog`）。`GameDialog` の結果の帯に「🪙 +n コイン（スロット用）」・0 枚の理由（`coinText`。`.game-coins`）。`render.ts` にスロット台（`drawSlotCabinet`・当たり判定 `slots`・札・頭上の 🎰）。
   `ArcadePage` の上のバーの名前の後ろに 🪙（`.me-coins`。1 枚以上・1279px 以下は隠す）、スマホのメニューにコインと［🏦 コインを預ける・引き出す］。`audio/sfx.ts` にスロットの音。
 - `components/` `Badges`（名前の後ろのバッジ。4 色）・`CraneDialog`（クレーンゲームの窓）・`PosterDialog`（ポスターの一覧・詳細・書く）・`EntryPage`（入店・名前と見た目。入店のボタンで BGM を鳴らせるようにする・BGM のクレジット・版）・`BgmControls`（下のバーの BGM の操作と曲の一覧）・`ArcadePage`（店内・描画のループ・キーボード・マウス・埋め込み）・`ChatPanel`・`CabinetDialog`・`ScreenDialog`（大画面の一覧）・`WatchView`（視聴画面）・`AdminDialog`
 
@@ -290,9 +297,10 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   finish は `{session, moves: [[x, rot, bonus, t], …], over?: [x, bonus]}`（練習は `{recorded: false, practice: true}`）→ `detail: {startLevel, level, jewels}` も。ランキングの行にも `detail`。
   ページは `{BASE_PATH}/games/columns/index.html`
   Hextris（`:game` = `hextris`）：finish は `{session, score, clears: [[k, m], …]}`（ブラウザの申告。合わなければ `bad-moves`、速すぎれば `too-fast`）→ `detail: {combo, blocks}`。ページは `{BASE_PATH}/games/hextris/index.html`
+  v0.7.0（2026-10-31）：finish の返事に `coins: {gained, total, capped?, reason?: low|practice|hour|full|off, min?}`（ゲームでもらえたスロットのコイン。DESIGN §17.9。練習・点数 0 の返事にも）。増えたら本人に `you`。
 - スロットとコイン（v0.7.0。DESIGN §17）：`GET /slot/:id`（コイン・内部中か `bonus`・`replay`・止めていない回 `pending`・次に回せる時刻）/ `POST /slot/:id/spin`（店内・台から 2 マス以内・3 枚（リプレイなら 0）。
   `too-far` / `spinning` / `too-soon` / `no-coins`。鍵ごと 1 分 60 回）→ `{spinId, flag, internal, coins, bet}` / `POST /slot/:id/stop {spinId, presses: [[リール, 押した位置], …]}`（`bad-input` / `no-spin`）→
-  `{reels, win, payout, coins, bonus, replay}` / `POST /slot/exchange {suit}`（店内。`no-badge` / `coin-max`）→ `{coins, badges}` / `POST /slot/deposit`（店内・手元を全部。`no-coins` / `spinning`）→ `{code, deposited, coins, expiresAt}` /
+  `{reels, win, payout, coins, bonus, replay}` / `POST /slot/exchange {suit}`（店内。マーク 1 つ = 100 枚。`no-badge` / `coin-max`）→ `{coins, badges}` / `POST /slot/deposit`（店内・手元を全部。`no-coins` / `spinning`）→ `{code, deposited, coins, expiresAt}` /
   `POST /slot/withdraw {code}`（店内。`bad-input`（形が違う・数えない）/ `bad-code`（無い・使い終わった・期限切れ。鍵ごと 10 分 5 回・IP ごと 10 回・全体 1 時間 200 回で `rate`）/ `coin-max`）→ `{withdrawn, coins}`。
   スロットの API 全体は鍵ごと 1 分 150 回、預け入れ・引き出しは鍵ごと 10 分 20 回。コインは `you`（本人にだけ）の `coins`。WebSocket の `play {game: 'slot'}` で頭上に 🎰。
 - 店内の BGM のファイル：`GET {BASE_PATH}/bgm/<ファイル名>`（API の外。一覧の intro / body にあるものだけ。Range 可・`Cache-Control: public, max-age=3600`）
@@ -523,6 +531,11 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
   期限は 180 日（sweep）。間違いは合言葉と同じ数え方（`blocked` を先に見て、`bad-code` のときだけ数える）。形の違う入力は数えない。手元と合わせて 99,999 枚を超える引き出しは断る（キーは残る）。
 - **退店**：手元にコインがあれば `window.confirm` の代わりに確認の窓（［預けてから退店］でキーを出してから［メモしたので退店する］）。コインが無ければ今までどおり。
 - **確認の道具**：`SLOT_BIG_ODDS`・`SLOT_REG_ODDS`（BIG・REG の 1/n）でボーナスを出やすくできる（本番では設定しない）。
+- **ゲームを遊ぶとコイン・両替は 100 枚**（2026-10-31。ユーザー「ゲームをプレイしたらスロットマシン用のコインが手にはいるようにしてください。6枚くらい。良いスコアだったら最大60枚くらい。クレーンゲームの交換も100枚にしてください。」。DESIGN §17.9）：
+  式と sMin・sMax はメインの叩き台どおりに、数字だけシミュレーションで決めた（2048 2,000〜20,000・Columns 3,000〜50,000・Hextris 800〜20,000。根拠の表は DESIGN §17.9）。
+  1 時間の上限は鍵ごと・メモリ（退店しても残る）。上限で減った・0 枚になったときは `capped`。財布が 99,999 で入りきらない分は `full`。断られた記録（bad-moves・too-fast）にはコインを出さない。
+  退店したあとの finish（閉じたときの keepalive）でも鍵の財布に足す（バッジと同じく 30 分は残り、その間に入り直せば使える）。Columns の練習はクライアントが記録を送らないので、窓の帯に「練習はコインなし」と出すだけ。
+  両替の 100 枚でもスロットの確率・配当・機械割は変えていない。
 - **筐体は 1 人 4 台まで**（ユーザー「一人が登録できる配信を4つまでに増やします」。DESIGN §18）：`claimError` に上限（`maxPerUser`）を足し、上限は `too-many`（`already-own` はやめた）。
   `CABINET_MAX_PER_USER`（1〜16、既定 4）・`/api/meta` の `cabinetMaxPerUser`。筐体の窓は自分の台の一覧（n / 4 台）と、上限なら［使う］を押せない。部屋ごと・時間切れと管理者の台は数えない。
 
@@ -530,6 +543,8 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
 
 - **v0.7.0 でユーザーに確かめること**：DESIGN §17.8 の表（S1〜S9）、スロットの操作感（リールの速さ・すべり・ウェイト 1.5 秒）・絵柄・LUCKY ランプ・効果音（**未試聴**）、店内の台の見た目と置き場所、
   預かりの使い勝手（キーを全部預ける・I と O を外したこと）。スマホの実機は未確認。
+- **ゲームのコイン（2026-10-31）でユーザーに確かめること**：DESIGN §17.8 の S10〜S12（ゲームごとの sMin・sMax・1 時間 300 枚・練習は 0 枚）。自動で解くプログラム・Hextris の申告のでっち上げでは毎回 60 枚もらえる（1 時間 300 枚まで）。
+  Hextris の sMin・sMax は自動の遊び手 6 ゲームずつの少ないサンプルから決めた（人の実際の点は確かめていない）。
 - スロットはクライアントに当たった役（flag）が届くので、自動で狙うプログラムは作れる（それでも目押し完璧の 102.5% まで。DESIGN §17.5）。コインは店内でしか使わない（景品・ランキングは無い）。
 - 預かりのキーは 4 文字なので、知られると引き出される・当てずっぽうは回数で遅くしているだけ（DESIGN §17.7）。預かりの行は 180 日で消える（件数の上限は無い）。
 - 筐体は 1 人 4 台まで（DESIGN §18）：隣どうしの筐体に配信を設定すると、店内の筐体の札（「配信名 | ゲーム名」と LIVE）が斜めに少し重なる（前から、別の人が並べて設定しても同じ。重なりの調整はしていない）。
@@ -571,6 +586,11 @@ npm run package      # build → release/virtual-arcade-<版>.tar.gz（+ .sha256
 
 ## 確認したこと（v0.7.0）
 
+- **ゲームのコイン・両替 100 枚**（2026-10-31）：`npm run build`・`npm test` **363 件**（shared の gameCoins.test.ts 5 件・server の v07coins.test.ts 6 件を足し、v07.test.ts の両替の枚数を 100 に）・`npm run package`
+  （SHA-256 `3d698c368271595dcf345901e56c177e0457a78bae8cae4a23510a9729851b34`）。開発のサーバ（8796・一時 DB・slot-check の環境変数・管理者の合言葉）で
+  slot-check 77 通り NG 0（両替で 100 枚・2 人目が 2048 を角に寄せて 2,668 点 → 13 枚 → スロットで 3 枚掛ける）・game-check 173 通り NG 0（1 回目はスマホのポスターのタップが 1 つ NG。前からの揺れで、回し直して NG 0。
+  ブラウザで 2048 を角に寄せて 3,164 点 → 「🪙 +17 コイン（スロット用）」・上のバーの 🪙 = サーバの手元）・keyboard-check NG 0・header-check quick 24 通り NG 0。
+  シミュレーション（DESIGN §17.9 の表）：coin-sim 300 ゲーム（種 1）・hextris-sim 6 ゲームずつ。画面は scratchpad の shots07g/game_pc_coins.png（結果の帯の +17 コイン・上のバーの 🪙24）・shots07c/slot_dialog_exchange.png（両替の欄 → 🪙100）。8791 には触っていない。一時 DB は消した。
 - スロットとコイン：`npm run build`・`npm test`（349 件：shared の slot.test.ts 18 件（総当たり 7 × 9,261 × 6 通り・機械割 30 万回）・server の v07.test.ts 5 件を足し、game2048.test.ts の空いたマスの確かめから (17,4)（スロット台）を外した）。
 - 機械割（`scripts/dev/slot-sim.ts`、100 万回 × 種 1・2・3）：完璧 101.98% / 102.80% / 102.54%（理論値 102.48%）、でたらめ 87.67% / 86.60% / 87.80%（ボーナスを揃えるまで平均約 49 回）。
 - `slot-check.mjs`：開発のサーバ（8796・一時 DB・上の環境変数）で 72 通り NG 0。途中で見つけて直したこと：台の上に浮かぶ看板が隣の台に重なった → 正面の面の上の看板に。

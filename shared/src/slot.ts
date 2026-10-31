@@ -62,9 +62,9 @@ export const SLOT_ROLE_NAMES: Record<SlotRole, string> = {
   cherry: 'チェリー',
 };
 
-/** コインの上限・両替（クレーンゲームのマーク 1 つ = コイン 10 枚） */
+/** コインの上限・両替（クレーンゲームのマーク 1 つ = コイン 100 枚。v0.7.0 の途中で 10 → 100（ユーザー指定）） */
 export const COIN_MAX = 99_999;
-export const COINS_PER_BADGE = 10;
+export const COINS_PER_BADGE = 100;
 /** 回す間隔の最短（早すぎる連打は待たせる）・押さずにこれだけたったら自動で止める */
 export const SLOT_MIN_INTERVAL_MS = 1500;
 export const SLOT_AUTO_STOP_MS = 30_000;

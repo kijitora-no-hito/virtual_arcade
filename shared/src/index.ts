@@ -18,3 +18,4 @@ export * from './gameRecord';
 export * from './hextris';
 export * from './spectate';
 export * from './slot';
+export * from './gameCoins';

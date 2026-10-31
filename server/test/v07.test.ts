@@ -30,16 +30,16 @@ describe('スロットマシン（DESIGN §17）', () => {
       expect((await h.call('POST', '/api/crane/1/play', { x: c.x, z: c.z }, a.key)).body.gained).toBe(true);
       clock.t += 1000;
     }
-    // 両替：♠ 1 つ = コイン 10 枚。名前の後ろのバッジも減る（全員に）・自分にだけコイン
+    // 両替：♠ 1 つ = コイン 100 枚（v0.7.0 の途中で 10 → 100）。名前の後ろのバッジも減る（全員に）・自分にだけコイン
     const ex = await h.call('POST', '/api/slot/exchange', { suit: '♠' }, a.key);
     expect(ex.status).toBe(200);
-    expect(ex.body).toEqual({ coins: 10, badges: '♠♠' });
+    expect(ex.body).toEqual({ coins: 100, badges: '♠♠' });
     await b.c.waitFor('player', (m) => m.player.pid === a.pid && m.player.badges === '♠♠');
-    await a.c.waitFor('you', (m) => m.you.coins === 10 && m.you.badges === '♠♠');
+    await a.c.waitFor('you', (m) => m.you.coins === 100 && m.you.badges === '♠♠');
     // コインはほかの人には送らない
     expect(JSON.stringify(b.c.msgs.filter((m) => m.type !== 'welcome'))).not.toMatch(/coins/);
     expect(JSON.stringify(b.c.welcome!.players)).not.toMatch(/coins/);
-    expect((await h.call('POST', '/api/slot/exchange', { suit: '♠' }, a.key)).body.coins).toBe(20);
+    expect((await h.call('POST', '/api/slot/exchange', { suit: '♠' }, a.key)).body.coins).toBe(200);
 
     // 遠いと回せない・知らない台
     expect((await h.call('POST', '/api/slot/1/spin', {}, a.key)).body.code).toBe('too-far');
@@ -50,7 +50,7 @@ describe('スロットマシン（DESIGN §17）', () => {
     next = 0.999;
     const s1 = await h.call('POST', '/api/slot/1/spin', {}, a.key);
     expect(s1.status).toBe(200);
-    expect(s1.body).toMatchObject({ flag: null, internal: null, coins: 17, bet: 3 });
+    expect(s1.body).toMatchObject({ flag: null, internal: null, coins: 197, bet: 3 });
     // 前の回が終わっていない・止めていないのに回す
     expect((await h.call('POST', '/api/slot/2/spin', {}, a.key)).body.code).toBe('spinning');
     // ありえない押す位置・違う回
@@ -73,7 +73,7 @@ describe('スロットマシン（DESIGN §17）', () => {
     // 窓を開き直すと止めていない回が返る
     expect((await h.call('GET', '/api/slot/1', undefined, a.key)).body.pending.spinId).toBe(s1.body.spinId);
     const t1 = await h.call('POST', '/api/slot/1/stop', { spinId: s1.body.spinId, presses: [[0, 0], [1, 0], [2, 0]] }, a.key);
-    expect(t1.body).toMatchObject({ win: null, payout: 0, coins: 17, bonus: null, replay: false });
+    expect(t1.body).toMatchObject({ win: null, payout: 0, coins: 197, bonus: null, replay: false });
     expect(t1.body.reels).toHaveLength(3);
     // 同じ回は 2 度止められない
     expect((await h.call('POST', '/api/slot/1/stop', { spinId: s1.body.spinId, presses: [[0, 0], [1, 0], [2, 0]] }, a.key)).body.code).toBe('no-spin');
@@ -84,7 +84,7 @@ describe('スロットマシン（DESIGN §17）', () => {
     // BIG（乱数 0）：外すと持ち越し（ランプ）、次の回で 7 を狙えば揃う
     next = 0;
     const s2 = await h.call('POST', '/api/slot/1/spin', {}, a.key);
-    expect(s2.body).toMatchObject({ flag: 'big', internal: 'big', coins: 14 });
+    expect(s2.body).toMatchObject({ flag: 'big', internal: 'big', coins: 194 });
     const miss = await h.call(
       'POST',
       '/api/slot/1/stop',
@@ -97,16 +97,16 @@ describe('スロットマシン（DESIGN §17）', () => {
     // 内部中は小役だけ抽選（乱数 0.999 = はずれ）→ この回に揃えられるのは BIG
     next = 0.999;
     const s3 = await h.call('POST', '/api/slot/1/spin', {}, a.key);
-    expect(s3.body).toMatchObject({ flag: 'big', internal: 'big', coins: 11 });
+    expect(s3.body).toMatchObject({ flag: 'big', internal: 'big', coins: 191 });
     const big = await h.call(
       'POST',
       '/api/slot/1/stop',
       { spinId: s3.body.spinId, presses: [[2, at(2, 'seven')], [0, at(0, 'seven')], [1, at(1, 'seven')]] },
       a.key,
     );
-    expect(big.body).toMatchObject({ win: 'big', payout: 250, coins: 261, bonus: null });
+    expect(big.body).toMatchObject({ win: 'big', payout: 250, coins: 441, bonus: null });
     await b.c.waitFor('chat', (m) => m.message.kind === 'system' && m.message.text === '🎰 たいよう さんがスロットで BIG BONUS！（+250 枚）');
-    await a.c.waitFor('you', (m) => m.you.coins === 261);
+    await a.c.waitFor('you', (m) => m.you.coins === 441);
     clock.t += 1500;
 
     // 内部中に小役（乱数 0 = ベル）が当たった回は小役が先（BIG は揃わない）
@@ -182,7 +182,7 @@ describe('コインの預かり（v0.7.0 の途中のユーザー指定。DESIGN
     await coinsFor(h, a, 3);
     const d = await h.call('POST', '/api/slot/deposit', {}, a.key);
     expect(d.status).toBe(200);
-    expect(d.body).toMatchObject({ deposited: 30, coins: 0 });
+    expect(d.body).toMatchObject({ deposited: 300, coins: 0 });
     expect(d.body.code).toMatch(/^[A-HJ-NP-Z]{4}$/);
     expect(d.body.expiresAt).toBe(clock.t + BANK_KEEP_MS);
     await a.c.waitFor('you', (m) => m.you.coins === 0);
@@ -199,8 +199,8 @@ describe('コインの預かり（v0.7.0 の途中のユーザー指定。DESIGN
     const lower = ` ${d.body.code.toLowerCase().slice(0, 2)} ${d.body.code.slice(2)}`;
     const w = await h.call('POST', '/api/slot/withdraw', { code: lower }, b.key);
     expect(w.status).toBe(200);
-    expect(w.body).toEqual({ withdrawn: 30, coins: 30 });
-    await b.c.waitFor('you', (m) => m.you.coins === 30);
+    expect(w.body).toEqual({ withdrawn: 300, coins: 300 });
+    await b.c.waitFor('you', (m) => m.you.coins === 300);
     // 1 回だけ
     expect((await h.call('POST', '/api/slot/withdraw', { code: d.body.code }, b.key)).body.code).toBe('bad-code');
     expect(normalizeBankCode('ａｂｃｄ')).toBe('ABCD');

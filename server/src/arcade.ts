@@ -61,6 +61,9 @@ import {
   addBadge,
   COIN_MAX,
   COINS_PER_BADGE,
+  GAME_COIN_RANGE,
+  gameCoins,
+  type GameCoinsResult,
   isSlotBonus,
   isSuit,
   parsePresses,
@@ -278,6 +281,8 @@ export class Arcade {
   private roomBans = new Set<string>();
   /** v0.6.0：始めたゲーム（鍵 → セッション。再起動で消える） */
   private gameSessions = new Map<string, GameSession>();
+  /** v0.7.0：ゲームでもらったコインの記録（鍵 → [時刻, 枚数]。1 時間の上限のため。退店しても残る・メモリだけ） */
+  private gameCoinLog = new Map<string, Array<[number, number]>>();
   /** v0.6.0：観戦。見る人の鍵 → 見ている遊ぶ人の鍵（1 人 1 つ。メモリだけ） */
   private spectating = new Map<string, string>();
   /** 観戦を許可していない人の鍵（窓のスイッチ。再起動で消える） */
@@ -987,6 +992,7 @@ export class Arcade {
     this.store.pruneReservations(now, RESERVATION_KEEP_MS, RESERVATION_MAX_ROWS);
     this.expireChat();
     this.expireGameSessions();
+    this.expireGameCoinLog();
     this.store.pruneBank(now - BANK_KEEP_MS);
     this.syncSlot();
   }
@@ -1375,7 +1381,7 @@ export class Arcade {
     const bet = sl.replay ? 0 : SLOT_BET;
     if (h.coins < bet) {
       this.tidyHold(p.keyHash);
-      throw new ArcadeError(409, `コインが足りません（1 回 ${SLOT_BET} 枚。クレーンゲームで取ったマークを両替できます）`, 'no-coins');
+      throw new ArcadeError(409, `コインが足りません（1 回 ${SLOT_BET} 枚。クレーンゲームで取ったマークを両替するか、ゲームを遊ぶともらえます）`, 'no-coins');
     }
     h.coins -= bet;
     sl.replay = false;
@@ -1730,7 +1736,17 @@ export class Arcade {
     const ms = this.now() - sess.startedAt;
     // 練習の設定（Columns like game の Standard・5 色・Height 0 以外）は記録しない（なぞり直しもしない）
     if (sess.practice)
-      return { recorded: false, practice: true, score: 0, maxTile: 0, moves: 0, best: this.store.bestScoreOf(game, k), newBest: false, rank: this.ranksOf(game, k) };
+      return {
+        recorded: false,
+        practice: true,
+        score: 0,
+        maxTile: 0,
+        moves: 0,
+        best: this.store.bestScoreOf(game, k),
+        newBest: false,
+        rank: this.ranksOf(game, k),
+        coins: this.awardGameCoins(k, game, 0, 'practice'),
+      };
     // ゲームごとのなぞり直し（gameRecord.ts。速すぎる・おかしな記録は断る）
     const r = checkGameRecord(game, sess.seed, sess.options, body as Record<string, unknown>, ms);
     if (!r.ok)
@@ -1747,7 +1763,17 @@ export class Arcade {
     const oldMonth = this.store.bestScoreOf(game, k, monthStart);
     const detail = r.detail ? { detail: r.detail } : {};
     if (r.score <= 0)
-      return { recorded: false, score: 0, maxTile: r.maxTile, moves: n, best: oldBest, newBest: false, rank: this.ranksOf(game, k), ...detail };
+      return {
+        recorded: false,
+        score: 0,
+        maxTile: r.maxTile,
+        moves: n,
+        best: oldBest,
+        newBest: false,
+        rank: this.ranksOf(game, k),
+        ...detail,
+        coins: this.awardGameCoins(k, game, 0),
+      };
     const u = this.store.getUser(k);
     const p = this.online.get(k);
     const name = p?.name ?? u?.name ?? '？';
@@ -1762,7 +1788,54 @@ export class Arcade {
     if (parts.length)
       this.addChat(this.roomOf(k), 'system', null, null, `🏆 ${name} さんが ${gameInfo(game)?.title ?? game} で ${formatScore(r.score)} 点！（${parts.join('・')}）`);
     this.broadcastRanking(game, before);
-    return { recorded: true, score: r.score, maxTile: r.maxTile, moves: n, best: Math.max(oldBest, r.score), newBest, rank, ...detail };
+    const coins = this.awardGameCoins(k, game, r.score);
+    return { recorded: true, score: r.score, maxTile: r.maxTile, moves: n, best: Math.max(oldBest, r.score), newBest, rank, ...detail, coins };
+  }
+
+  /** その鍵がこの 1 時間にゲームでもらったコイン（古い記録は消す） */
+  private gameCoinsInHour(k: string): number {
+    const since = this.now() - 60 * 60 * 1000;
+    const log = (this.gameCoinLog.get(k) ?? []).filter(([at]) => at > since);
+    if (log.length) this.gameCoinLog.set(k, log);
+    else this.gameCoinLog.delete(k);
+    return log.reduce((a, [, n]) => a + n, 0);
+  }
+
+  /** 1 時間より古いゲームのコインの記録を消す（sweep） */
+  private expireGameCoinLog(): void {
+    for (const k of [...this.gameCoinLog.keys()]) this.gameCoinsInHour(k);
+  }
+
+  /**
+   * v0.7.0：ゲームを遊ぶとスロットのコイン（DESIGN §17.9。ユーザー指定「6枚くらい。良いスコアだったら最大60枚くらい」）。
+   * 記録された点数から gameCoins（sMin 未満は 0・sMin で 6・sMax 以上で 60）を、鍵の財布（スロットのコインと同じ。メモリ・バッジと同じ寿命）に足す。
+   * 鍵ごとの 1 時間の上限 cfg.gameCoinsPerHour（超えた分は 0）・手元の上限 COIN_MAX。店内にいなくても（退店・ページを離れたとき）足す
+   */
+  private awardGameCoins(k: string, game: string, score: number, why?: 'practice'): GameCoinsResult {
+    const total = () => this.coinsOf(k);
+    if (why === 'practice') return { gained: 0, total: total(), reason: 'practice' };
+    const cap = this.cfg.gameCoinsPerHour;
+    if (cap <= 0) return { gained: 0, total: total(), reason: 'off' };
+    const base = gameCoins(game, score);
+    if (base <= 0) return { gained: 0, total: total(), reason: 'low', min: GAME_COIN_RANGE[game]?.min };
+    const left = Math.max(0, cap - this.gameCoinsInHour(k));
+    const h = this.hold(k);
+    const room = Math.max(0, COIN_MAX - h.coins);
+    const gained = Math.min(base, left, room);
+    const capped = gained < base && left < base && left <= room;
+    if (gained > 0) {
+      h.coins += gained;
+      const log = this.gameCoinLog.get(k) ?? [];
+      log.push([this.now(), gained]);
+      this.gameCoinLog.set(k, log);
+      this.sendYou(k);
+    } else this.tidyHold(k);
+    const res: GameCoinsResult = { gained, total: h.coins };
+    if (capped) {
+      res.capped = true;
+      res.reason = 'hour';
+    } else if (gained < base) res.reason = 'full';
+    return res;
   }
 
   private entry(r: GameScoreRow, rank: number): RankingEntry {

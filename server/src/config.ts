@@ -7,6 +7,7 @@ import {
   DEFAULT_CABINET_MAX_PER_USER,
   DEFAULT_CRANE_COOLDOWN_MS,
   DEFAULT_CRANE_ODDS,
+  DEFAULT_GAME_COINS_PER_HOUR,
   DEFAULT_POSTER_MAX_PER_USER,
   DEFAULT_POSTER_MAX_TOTAL,
   NOTE_MAX_TOTAL,
@@ -124,6 +125,8 @@ export interface Config {
   spectate: SpectateConfig;
   /** v0.7.0：スロットの内部抽選の確率（1/n の n。画面の確認用に SLOT_BIG_ODDS・SLOT_REG_ODDS で BIG・REG だけ変えられる） */
   slotOdds?: Record<SlotRole, number>;
+  /** v0.7.0：ゲームを遊んでもらえるスロットのコインの、鍵ごとの 1 時間の上限（GAME_COINS_PER_HOUR、0〜100,000。0 = ゲームではもらえない。DESIGN §17.9） */
+  gameCoinsPerHour: number;
 }
 
 export interface SpectateConfig {
@@ -225,6 +228,7 @@ export const defaultConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
       big: env.SLOT_BIG_ODDS ? int(env.SLOT_BIG_ODDS, 256, 2, 100000) : SLOT_ODDS.big,
       reg: env.SLOT_REG_ODDS ? int(env.SLOT_REG_ODDS, 400, 2, 100000) : SLOT_ODDS.reg,
     },
+    gameCoinsPerHour: int(env.GAME_COINS_PER_HOUR, DEFAULT_GAME_COINS_PER_HOUR, 0, 100000),
     spectate: {
       enabled: (env.SPECTATE ?? '').trim().toLowerCase() !== 'off',
       maxViewers: int(env.SPECTATE_MAX_VIEWERS, SPECTATE_DEFAULTS.maxViewers, 1, 50),

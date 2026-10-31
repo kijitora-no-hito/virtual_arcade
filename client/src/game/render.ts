@@ -10,6 +10,7 @@ import {
   gameSpots,
   rankingSpots,
   slotSpots,
+  COINS_PER_BADGE,
   type SlotSpot,
   type GameSpot,
   type RankingEntry,
@@ -2304,7 +2305,7 @@ export const drawScene = (
     if (g) {
       const top = toScreen(v, g.x + 0.5, g.y + 0.5, SLOT_BOX_H + SLOT_SIGN_H + 30);
       const { h } = pill(ctx, top.x, top.y, 'スロット　クリックで遊ぶ', 10.5 * ts, '#fff', 'rgba(20, 8, 40, 0.92)', SLOT_RED);
-      pill(ctx, top.x, top.y - h - 3 * ts, 'マーク 1 つ = コイン 10 枚', 9.5 * ts, '#1a1300', SLOT_GOLD);
+      pill(ctx, top.x, top.y - h - 3 * ts, `マーク 1 つ = コイン ${COINS_PER_BADGE} 枚`, 9.5 * ts, '#1a1300', SLOT_GOLD);
     }
   }
   // ゲーム筐体・ランキングのポスターの札（カーソルを置いたとき。v0.6.0）

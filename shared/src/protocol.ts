@@ -310,6 +310,20 @@ export interface GameFinishResponse {
   practice?: boolean;
   /** ゲームごとの中身（Columns like game） */
   detail?: GameDetail;
+  /** v0.7.0：このゲームでもらえたスロットのコイン（DESIGN §17.9） */
+  coins?: GameCoinsResult;
+}
+
+/** v0.7.0：ゲームでもらえたスロットのコイン（gained = 手元に足した数・total = 足したあとの手元） */
+export interface GameCoinsResult {
+  gained: number;
+  total: number;
+  /** 1 時間の上限で減った（0 枚になったときも） */
+  capped?: boolean;
+  /** 0 枚・減ったわけ：low = 点数が少ない（min 点から）・practice = 練習・hour = 1 時間の上限・full = 手元が上限・off = ゲームではもらえない設定 */
+  reason?: 'low' | 'practice' | 'hour' | 'full' | 'off';
+  /** この点数から GAME_COIN_MIN 枚（reason = low のとき） */
+  min?: number;
 }
 
 /** GET /api/games/:game/ranking?period=all|month */

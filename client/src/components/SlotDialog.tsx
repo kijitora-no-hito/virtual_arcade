@@ -1,6 +1,8 @@
 import {
   cabinetDistance,
   COINS_PER_BADGE,
+  GAME_COIN_MAX,
+  GAME_COIN_MIN,
   REELS,
   SLOT_BET,
   SLOT_AUTO_STOP_MS,
@@ -467,7 +469,7 @@ export const SlotDialog = ({ client, id, onClose }: { client: ArcadeClient; id: 
           </section>
           <section className="slot-exchange" aria-label="マークを両替">
             <h3>マークを両替</h3>
-            <p className="muted small">クレーンゲームで取ったマーク 1 つ = コイン {COINS_PER_BADGE} 枚（マークはなくなります）</p>
+            <p className="muted small">クレーンゲームで取ったマーク 1 つ = コイン {COINS_PER_BADGE} 枚（マークはなくなります）。ゲーム筐体（2048・Columns like game・Hextris）を遊んでも点数に応じて {GAME_COIN_MIN}〜{GAME_COIN_MAX} 枚もらえます</p>
             <div className="slot-ex-list">
               {counts.map(({ s, n }) => (
                 <button
